@@ -15,6 +15,7 @@
     "@astrojs/vercel": "11.0.17",
     "@libsql/client": "0.18.0",
     "@livekit/components-react": "2.9.24",
+    "@sapphi-red/web-noise-suppressor": "0.4.1",
     "astro": "^7.4.4",
     "livekit-client": "2.23.0",
     "livekit-server-sdk": "2.19.2",
