@@ -4,15 +4,27 @@ import {
   useChat,
   useDataChannel,
   useLocalParticipant,
+  useLocalParticipantPermissions,
+  useParticipantInfo,
   useParticipants,
   useRoomContext,
+  useRoomInfo,
   useAudioPlayback,
   useTracks,
 } from '@livekit/components-react';
-import { RemoteAudioTrack, Track, type LocalAudioTrack, type LocalVideoTrack } from 'livekit-client';
+import { RemoteAudioTrack, Track, type LocalAudioTrack } from 'livekit-client';
 import { Icon } from '../Icon';
 import { useT } from '../i18n';
-import { saveNoiseFilter, saveQuality, savedNoiseFilter, savedQuality, since } from '../../lib/client';
+import {
+  forgetHostKey,
+  saveHostKey,
+  saveNoiseFilter,
+  saveQuality,
+  savedNoiseFilter,
+  savedQuality,
+  since,
+} from '../../lib/client';
+import { liveRoom, roleOf } from './meta';
 import type { Role, RoomInfo } from '../../lib/livekit';
 import {
   canShareScreen,
@@ -43,6 +55,9 @@ const decoder = new TextDecoder();
 
 type Floating = { id: number; emoji: string; x: number; from: string };
 
+// LiveKit's protocol number for a screen share in a permission list (TrackSource.SCREEN_SHARE)
+const SCREEN_SHARE_SOURCE = 3;
+
 // Safari's prefixed full screen and picture in picture (iPhone has no element full screen at all)
 type IOSVideo = HTMLVideoElement & {
   webkitEnterFullscreen?: () => void;
@@ -62,9 +77,9 @@ const elementFullscreen = () => !!(doc().fullscreenEnabled || doc().webkitFullsc
 type Toast = { text: string; action?: { label: string; href: string } };
 
 export function RoomView({
-  info,
-  role,
-  hostKey,
+  info: joinedInfo,
+  role: joinedRole,
+  hostKey: joinedHostKey,
   premium,
 }: {
   info: RoomInfo;
@@ -75,6 +90,12 @@ export function RoomView({
 }) {
   const t = useT();
   const room = useRoomContext();
+  const local = useLocalParticipant();
+  // The room and your role as they are now: the host can change settings and hand the room over
+  const { metadata: roomMetadata } = useRoomInfo();
+  const info = useMemo(() => liveRoom(joinedInfo, roomMetadata), [joinedInfo, roomMetadata]);
+  const { metadata: myMetadata } = useParticipantInfo({ participant: local.localParticipant });
+  const role = roleOf(myMetadata, joinedRole);
   const isHost = role === 'host';
   // Dev only: lets automated tests publish a fake screen without the browser's picker
   useEffect(() => {
@@ -82,8 +103,51 @@ export function RoomView({
   }, [room]);
   // Only the count is shown: re-render when someone joins or leaves, not each time someone speaks
   const participants = useParticipants({ updateOnlyOn: [] });
-  const [screen] = useTracks([Track.Source.ScreenShare]);
-  const local = useLocalParticipant();
+
+  // ---- the host key: it arrives from the server when someone hands you the room
+  const [hostKey, setHostKey] = useState(joinedHostKey);
+  useDataChannel('host-key', (msg) => {
+    // Only the server sends this (a participant's message always has a sender)
+    if (msg.from) return;
+    try {
+      const { hostKey: key } = JSON.parse(decoder.decode(msg.payload)) as { hostKey?: string };
+      if (!key) return;
+      saveHostKey(info.id, key);
+      setHostKey(key);
+      notify(t('room.youAreHost'), 5000);
+    } catch {}
+  });
+  // Handed the room to someone else: the old key no longer works
+  useEffect(() => {
+    if (role === 'guest' && hostKey) {
+      forgetHostKey(info.id);
+      setHostKey(null);
+    }
+  }, [role]);
+  // Everyone hears about a new host, the old host included (the new host gets their own
+  // message above). The room's name for its host changes a moment before anyone's role does,
+  // so compare names rather than roles.
+  const lastHost = useRef(info.host);
+  useEffect(() => {
+    if (info.host !== lastHost.current && info.host !== local.localParticipant.name) {
+      notify(t('room.newHost', { name: info.host }), 5000);
+    }
+    lastHost.current = info.host;
+  }, [info.host]);
+
+  // ---- screens: several people can share when the host allows it; the newest one is on stage,
+  // and the others are a click away
+  const screens = useTracks([Track.Source.ScreenShare]);
+  const [pinned, setPinned] = useState<string | null>(null);
+  const seenScreens = useRef<string[]>([]);
+  const screenIds = screens.map((s) => s.participant.identity).join(',');
+  useEffect(() => {
+    const ids = screenIds ? screenIds.split(',') : [];
+    const added = ids.find((id) => !seenScreens.current.includes(id));
+    if (added) setPinned(added);
+    seenScreens.current = ids;
+  }, [screenIds]);
+  const screen = screens.find((s) => s.participant.identity === pinned) ?? screens[screens.length - 1];
 
   const stageRef = useRef<HTMLDivElement>(null);
   useScreenLayer(screen?.publication, stageRef);
@@ -121,8 +185,13 @@ export function RoomView({
     addReaction(emoji, t('tile.you'));
   };
 
-  // ---- screen share (host)
+  // ---- screen share (the host; everyone when the room allows it)
   const canShare = useMemo(canShareScreen, []);
+  // What LiveKit lets this person publish right now (it changes with the host's settings)
+  const permissions = useLocalParticipantPermissions();
+  const mayShare = permissions
+    ? !!permissions.canPublishSources?.includes(SCREEN_SHARE_SOURCE as never)
+    : isHost || info.share;
   const [quality, setQualityState] = useState<Quality>(() => {
     const saved = toQuality(savedQuality());
     return premium || !isPremiumQuality(saved) ? saved : defaultQuality;
@@ -140,8 +209,8 @@ export function RoomView({
       } else {
         const { capture, publish } = shareOptions(quality, shareAudio);
         await local.localParticipant.setScreenShareEnabled(true, capture, publish);
-        // Counted on the admin dashboard
-        fetch(`/api/rooms/${info.id}/shared`, { method: 'POST', headers: { 'x-host-key': hostKey ?? '' } }).catch(() => {});
+        // Counted on the admin dashboard (the host's shares)
+        if (hostKey) fetch(`/api/rooms/${info.id}/shared`, { method: 'POST', headers: { 'x-host-key': hostKey } }).catch(() => {});
         // The browser only hands over sound for a tab or the entire screen, and only with its checkbox on
         if (shareAudio && !local.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio)) {
           notify(t('room.noSound'), 10_000);
@@ -152,10 +221,9 @@ export function RoomView({
       if ((e as Error).name !== 'NotAllowedError') notify(t('room.shareFailed', { error: (e as Error).message }));
     }
   }
-  const localScreen = local.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.videoTrack as
-    | LocalVideoTrack
-    | undefined;
-  useThumbnails(info.id, hostKey, localScreen, isHost && info.visibility === 'public' && local.isScreenShareEnabled);
+  // The home page preview follows whatever screen is on stage, the host's or a guest's
+  const stageTrack = screen?.publication?.track;
+  useThumbnails(info.id, hostKey, stageTrack, isHost && info.visibility === 'public' && !!stageTrack);
 
   // Phones can't share their screen: hand the host role to a computer instead
   const copyHostLink = async () => {
@@ -287,6 +355,15 @@ export function RoomView({
     if (!confirmEnd) return setConfirmEnd(true);
     await manage({ action: 'end' }).catch(() => notify(t('room.endFailed')));
   };
+  // The new values come back to everyone through the room's metadata
+  const changeSettings = (change: { share?: boolean; approval?: boolean }) =>
+    manage({ action: 'settings', ...change })
+      .then((r) => !r.ok && notify(t('room.settingsFailed')))
+      .catch(() => notify(t('room.settingsFailed')));
+  const makeHost = (identity: string) =>
+    manage({ action: 'transfer', identity })
+      .then((r) => !r.ok && notify(t('room.transferFailed')))
+      .catch(() => notify(t('room.transferFailed')));
 
   const sharer = screen?.participant;
   const [screenAudio] = useTracks([Track.Source.ScreenShareAudio]);
@@ -323,12 +400,42 @@ export function RoomView({
             {info.visibility === 'public' ? t('room.public') : t('room.private')}
             <span className="sep">·</span>
             <Icon name="users" size={12} /> {participants.length}
+            {info.max ? `/${info.max}` : ''}
           </span>
         </div>
         <div className="room-actions">
           <button className="btn" onClick={invite}>
             <Icon name={copied ? 'check' : 'link'} size={14} /> {copied ? t('room.copied') : t('room.invite')}
           </button>
+          {isHost && (
+            <details className="room-settings">
+              <summary className="btn" aria-label={t('room.settings')} title={t('room.settings')}>
+                <Icon name="sliders" size={14} />
+              </summary>
+              <div className="settings-pop">
+                <p className="label">{t('room.settings')}</p>
+                <label className="check">
+                  <input type="checkbox" checked={info.share} onChange={(e) => changeSettings({ share: e.target.checked })} />
+                  <span>
+                    <strong>{t('create.share')}</strong> {t('room.shareHint')}
+                  </span>
+                </label>
+                {info.visibility === 'private' && (
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={info.approval}
+                      onChange={(e) => changeSettings({ approval: e.target.checked })}
+                    />
+                    <span>
+                      <strong>{t('create.approval')}</strong> {t('create.approvalHint')}
+                    </span>
+                  </label>
+                )}
+                <p className="muted small">{t('room.makeHostHint')}</p>
+              </div>
+            </details>
+          )}
           {isHost && (
             <button className={`btn ${confirmEnd ? 'danger' : ''}`} onClick={endRoom} onBlur={() => setConfirmEnd(false)}>
               {confirmEnd ? t('room.endConfirm') : t('room.end')}
@@ -338,6 +445,23 @@ export function RoomView({
       </header>
 
       {isHost && info.approval && hostKey && <Door roomId={info.id} hostKey={hostKey} />}
+
+      {/* More than one person sharing: pick whose screen is on stage */}
+      {screens.length > 1 && (
+        <div className="screens-switch" role="group" aria-label={t('room.screens')}>
+          <Icon name="screen" size={14} />
+          {screens.map((s) => (
+            <button
+              key={s.participant.identity}
+              className={`chip-btn ${s === screen ? 'on' : ''}`}
+              aria-pressed={s === screen}
+              onClick={() => setPinned(s.participant.identity)}
+            >
+              {s.participant.isLocal ? t('tile.you') : s.participant.name || s.participant.identity}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="room-main">
         <div className="room-col">
@@ -376,7 +500,7 @@ export function RoomView({
                 </div>
               ) : (
                 <div className="stage-empty hatch">
-                  {isHost && canShare ? (
+                  {mayShare && canShare ? (
                     <>
                       <p className="stage-msg">{t('room.ready')}</p>
                       <button className="btn primary" onClick={toggleShare}>
@@ -452,7 +576,7 @@ export function RoomView({
 
             {/* Over the picture on a computer, in a tray under it on a phone */}
             <div className="dock">
-              {isHost && canShare && !local.isScreenShareEnabled && (
+              {mayShare && canShare && !local.isScreenShareEnabled && (
                 <div className="share-opts">
                   <label className="pick">
                     <select
@@ -514,7 +638,7 @@ export function RoomView({
                 >
                   <Icon name={local.isCameraEnabled ? 'camera' : 'cameraOff'} size={19} />
                 </button>
-                {isHost && canShare && (
+                {mayShare && canShare && (
                   <button
                     className={`round share ${local.isScreenShareEnabled ? 'active' : ''}`}
                     onClick={toggleShare}
@@ -619,7 +743,7 @@ export function RoomView({
             </div>
           </div>
 
-          <Tiles isHost={isHost} onRemove={(identity) => manage({ action: 'remove', identity })} />
+          <Tiles isHost={isHost} onRemove={(identity) => manage({ action: 'remove', identity })} onMakeHost={makeHost} />
         </div>
 
         {chatOpen && <Chat chat={chat} onClose={() => setChatOpen(false)} />}

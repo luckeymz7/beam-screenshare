@@ -985,3 +985,22 @@ strong {
 .card-stage .entrance {
   inset: -1.5rem;
 }
+
+/* create form: extra options */
+.create-options {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 40rem;
+}
+.option {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--muted);
+  font-size: 13px;
+}
+.option .select {
+  width: auto;
+  height: 2rem;
+  padding-inline: 0.5rem;
+}

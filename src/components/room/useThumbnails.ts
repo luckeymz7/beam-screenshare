@@ -1,15 +1,15 @@
 import { useEffect } from 'react';
-import type { LocalVideoTrack } from 'livekit-client';
+import type { Track } from 'livekit-client';
 
 const EVERY = 8_000;
 const WIDTH = 640;
 
 /**
- * While the host shares a public room, uploads a small frame of the screen every few
- * seconds for the preview on the home page. Runs off a hidden video element so it works
- * whatever the page is showing.
+ * In a public room, the host's browser uploads a small frame of the screen on stage every few
+ * seconds for the preview on the home page: the host's own share, or a guest's when guests
+ * may present. Runs off a hidden video element so it works whatever the page is showing.
  */
-export function useThumbnails(roomId: string, hostKey: string | null, track: LocalVideoTrack | undefined, enabled: boolean) {
+export function useThumbnails(roomId: string, hostKey: string | null, track: Track | undefined, enabled: boolean) {
   useEffect(() => {
     if (!enabled || !hostKey || !track) return;
     const video = document.createElement('video');

@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { createRoom } from '../../../lib/livekit';
+import { createRoom, roomSizes } from '../../../lib/livekit';
 import { listRooms } from '../../../lib/rooms';
 import { allowCreate } from '../../../lib/thumbs';
 import { apiError, unreachable } from '../../../lib/http';
@@ -33,6 +33,9 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
       approval: body.approval === true,
       theme: me?.theme,
       hostUser: me?.id,
+      // Only the sizes the form offers; anything else means no limit
+      max: roomSizes.includes(body.max as (typeof roomSizes)[number]) ? (body.max as number) : null,
+      share: body.share === true,
     });
     await track('room', { room: room.id, userId: me?.id });
     return Response.json(room, { status: 201 });

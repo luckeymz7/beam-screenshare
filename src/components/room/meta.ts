@@ -1,5 +1,5 @@
 import type { Participant } from 'livekit-client';
-import type { ParticipantMeta } from '../../lib/livekit';
+import type { ParticipantMeta, Role, RoomInfo } from '../../lib/livekit';
 import { toEntrance, toTheme } from '../../lib/themes';
 
 // Only pictures beam serves itself (or the login providers' avatars) end up in a profile
@@ -18,5 +18,36 @@ export function metaOf(p: Participant | undefined): Partial<ParticipantMeta> {
     };
   } catch {
     return {};
+  }
+}
+
+/** A role from someone's metadata string (it changes when the host role moves). */
+export function roleOf(metadata: string | undefined, fallback: Role): Role {
+  try {
+    const role = (JSON.parse(metadata || '{}') as { role?: unknown }).role;
+    return role === 'host' || role === 'guest' ? role : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * The room as it is now. The host can change who may share and whether people knock, and hand
+ * the room to someone else, during the room: LiveKit's room metadata carries the current values.
+ */
+export function liveRoom(base: RoomInfo, metadata: string | undefined): RoomInfo {
+  try {
+    const m = JSON.parse(metadata || '{}') as Record<string, unknown>;
+    if (!m.hostKeyHash) return base;
+    return {
+      ...base,
+      host: typeof m.host === 'string' ? m.host : base.host,
+      approval: !!m.approval,
+      share: !!m.share,
+      max: typeof m.max === 'number' ? m.max : null,
+      theme: toTheme(m.theme) ?? base.theme,
+    };
+  } catch {
+    return base;
   }
 }

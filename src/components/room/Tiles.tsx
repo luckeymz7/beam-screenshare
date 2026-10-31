@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { VideoTrack, isTrackReference, useIsMuted, useIsSpeaking, useTracks } from '@livekit/components-react';
-import { RemoteTrackPublication, Track, VideoQuality } from 'livekit-client';
+import { VideoTrack, isTrackReference, useIsMuted, useIsSpeaking, useParticipants, useTracks } from '@livekit/components-react';
+import { RemoteTrackPublication, RoomEvent, Track, VideoQuality } from 'livekit-client';
 import type { TrackReferenceOrPlaceholder } from '@livekit/components-react';
 import { Icon } from '../Icon';
 import { Avatar } from '../Account';
@@ -9,8 +9,18 @@ import { metaOf } from './meta';
 import { ProfileCard } from './ProfileCard';
 
 /** Everyone in the room, under the stage: camera if on, their picture or initials otherwise. */
-export function Tiles({ isHost, onRemove }: { isHost: boolean; onRemove: (identity: string) => void }) {
+export function Tiles({
+  isHost,
+  onRemove,
+  onMakeHost,
+}: {
+  isHost: boolean;
+  onRemove: (identity: string) => void;
+  onMakeHost: (identity: string) => void;
+}) {
   const cameras = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }]);
+  // Roles (and the host badge) move when the host hands the room over
+  useParticipants({ updateOnlyOn: [RoomEvent.ParticipantMetadataChanged] });
   const [open, setOpen] = useState<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
   // The host first, then you, then everyone else in join order
@@ -51,6 +61,7 @@ export function Tiles({ isHost, onRemove }: { isHost: boolean; onRemove: (identi
             meta={metaOf(opened)}
             you={opened.isLocal}
             friendButton
+            onMakeHost={isHost && !opened.isLocal ? () => onMakeHost(opened.identity) : undefined}
             onClose={() => setOpen(null)}
           />
         </div>

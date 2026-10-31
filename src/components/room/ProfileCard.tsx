@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { Avatar } from '../Account';
 import { FriendButton } from '../FriendButton';
+import { Icon } from '../Icon';
 import { useT } from '../i18n';
 import { themeStyle } from '../../lib/themes';
 import type { ParticipantMeta } from '../../lib/livekit';
@@ -14,6 +16,7 @@ export function ProfileCard({
   you,
   onClose,
   friendButton,
+  onMakeHost,
 }: {
   name: string;
   meta: Partial<ParticipantMeta>;
@@ -21,8 +24,12 @@ export function ProfileCard({
   onClose?: () => void;
   /** Offer "Add friend" (someone else, with an account) */
   friendButton?: boolean;
+  /** The host, looking at someone else: hand them the room */
+  onMakeHost?: () => void;
 }) {
   const t = useT();
+  const [armed, setArmed] = useState(false);
+  const showFriend = friendButton && !you && !!meta.uid;
   return (
     <div className={`profile-card ${meta.theme ? 'themed' : ''}`} style={themeStyle(meta.theme)} role="dialog" aria-label={name}>
       <div className="pc-banner" style={meta.banner ? { backgroundImage: `url("${meta.banner}")` } : undefined} />
@@ -47,9 +54,18 @@ export function ProfileCard({
           </p>
         )}
         {meta.bio && <p className="pc-bio">{meta.bio}</p>}
-        {friendButton && !you && meta.uid && (
+        {(showFriend || onMakeHost) && (
           <div className="pc-actions">
-            <FriendButton userId={meta.uid} />
+            {showFriend && <FriendButton userId={meta.uid!} />}
+            {onMakeHost && (
+              <button
+                className={`btn friend-btn ${armed ? 'danger' : ''}`}
+                onClick={() => (armed ? onMakeHost() : setArmed(true))}
+                onBlur={() => setArmed(false)}
+              >
+                <Icon name="key" size={14} /> {armed ? t('room.makeHostConfirm', { name }) : t('room.makeHost')}
+              </button>
+            )}
           </div>
         )}
       </div>

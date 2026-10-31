@@ -26,6 +26,11 @@ export const POST: APIRoute = async ({ params, request, locals }) => {
   const role = isHost(room.meta, str(body.hostKey) || null) ? 'host' : 'guest';
   const me = await getMe(locals.user).catch(() => null);
 
+  // The host always gets in; anyone else waits for a free spot
+  if (role === 'guest' && room.info.max && room.info.participants >= room.info.max) {
+    return apiError('full', 'This room is full.', 409);
+  }
+
   if (room.info.approval && role === 'guest') {
     const requestId = str(body.requestId);
     if (!requestId) {
@@ -38,7 +43,7 @@ export const POST: APIRoute = async ({ params, request, locals }) => {
     if (state !== 'accepted') return apiError('expired', 'Your request expired. Ask again.', 410);
   }
 
-  const token = await joinToken(room.info.id, name, role, me ? roomProfile(me) : null);
+  const token = await joinToken(room.info.id, name, role, me ? roomProfile(me) : null, room.info.share);
   await track('join', { room: room.info.id, userId: me?.id });
   return Response.json({ ...token, role, room: room.info, premium: !!me?.premium });
 };

@@ -7,6 +7,7 @@ Screen sharing in the browser, in the quality you pick. Public rooms are listed 
 - **A room, not just a stream:** mic and camera for everyone, chat, reactions, stream stats, picture in picture, full screen (iPhone included).
 - **Noise suppression on the mic,** like Discord's: [RNNoise](https://github.com/xiph/rnnoise) running in an AudioWorklet, on by default.
 - **Private rooms that ask first** (optional): guests knock and the host lets them in or not.
+- **Like Google Meet:** a limit on how many people can join, letting everyone share their screen (with a switcher when several do), and handing the host role to someone else, all changeable during the room.
 - **Host controls:** remove someone, end the room for everyone, or move the host role to another device with a host link.
 - **Optional accounts** with email and password, Google or Discord: a profile card (with your own picture) people see when they click you in a room.
 - **Friends:** add people from a room or with your friend link, and see which friends are live (and join them) from the home page.

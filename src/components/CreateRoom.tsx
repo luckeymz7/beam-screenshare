@@ -3,12 +3,17 @@ import { Icon } from './Icon';
 import { saveHostKey, saveName, savedName } from '../lib/client';
 import { errorText, translator, type Lang } from '../lib/i18n';
 
+// Same list the server accepts (src/lib/livekit.ts); 0 is no limit
+const SIZES = [0, 2, 5, 10, 25, 50];
+
 export default function CreateRoom({ lang, myName }: { lang: Lang; myName?: string | null }) {
   const t = translator(lang);
   const [title, setTitle] = useState('');
   const [name, setName] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
   const [approval, setApproval] = useState(false);
+  const [max, setMax] = useState(0);
+  const [share, setShare] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -22,7 +27,14 @@ export default function CreateRoom({ lang, myName }: { lang: Lang; myName?: stri
       const res = await fetch('/api/rooms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, name, visibility, approval: visibility === 'private' && approval }),
+        body: JSON.stringify({
+          title,
+          name,
+          visibility,
+          approval: visibility === 'private' && approval,
+          max: max || null,
+          share,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(errorText(t, data, 'create.failed'));
@@ -77,14 +89,34 @@ export default function CreateRoom({ lang, myName }: { lang: Lang; myName?: stri
           <Icon name="arrow" size={14} />
         </button>
       </div>
-      {visibility === 'private' && (
+
+      <div className="create-options">
+        <label className="option">
+          <Icon name="users" size={15} />
+          <span>{t('create.max')}</span>
+          <select className="input select" value={max} onChange={(e) => setMax(Number(e.target.value))}>
+            {SIZES.map((n) => (
+              <option key={n} value={n}>
+                {n ? t('create.upTo', { n }) : t('create.noLimit')}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="check">
-          <input type="checkbox" checked={approval} onChange={(e) => setApproval(e.target.checked)} />
+          <input type="checkbox" checked={share} onChange={(e) => setShare(e.target.checked)} />
           <span>
-            <strong>{t('create.approval')}</strong> {t('create.approvalHint')}
+            <strong>{t('create.share')}</strong> {t('create.shareHint')}
           </span>
         </label>
-      )}
+        {visibility === 'private' && (
+          <label className="check">
+            <input type="checkbox" checked={approval} onChange={(e) => setApproval(e.target.checked)} />
+            <span>
+              <strong>{t('create.approval')}</strong> {t('create.approvalHint')}
+            </span>
+          </label>
+        )}
+      </div>
       {error && <p className="error">{error}</p>}
     </form>
   );

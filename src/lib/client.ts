@@ -20,6 +20,12 @@ export const saveName = (name: string) => write('beam:name', name);
 /** The creator keeps the room's host key in this browser; it's what makes them the host. */
 export const hostKeyFor = (room: string) => read(`beam:host:${room}`);
 export const saveHostKey = (room: string, key: string) => write(`beam:host:${room}`, key);
+/** The host role moved to someone else: this key no longer works. */
+export const forgetHostKey = (room: string) => {
+  try {
+    localStorage.removeItem(`beam:host:${room}`);
+  } catch {}
+};
 
 /** Microphone noise suppression, on unless turned off. */
 export const savedNoiseFilter = () => read('beam:noise') !== 'off';

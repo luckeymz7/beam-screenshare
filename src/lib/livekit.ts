@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { AccessToken, RoomServiceClient, TrackSource, type Room } from 'livekit-server-sdk';
+import { AccessToken, DataPacket_Kind, RoomServiceClient, TrackSource, type Room } from 'livekit-server-sdk';
 import { LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_URL } from 'astro:env/server';
 import { toTheme, type Theme } from './themes';
 import type { RoomProfile } from './users';
@@ -36,6 +36,10 @@ type RoomMeta = {
   theme?: Theme;
   /** The host's account, when logged in */
   hostUser?: string;
+  /** Most people allowed in at once (the host included) */
+  max?: number;
+  /** Everyone may share their screen, not only the host (like Google Meet's "Share their screen") */
+  share?: boolean;
 };
 
 export type RoomInfo = {
@@ -47,7 +51,12 @@ export type RoomInfo = {
   participants: number;
   approval: boolean;
   theme: Theme | null;
+  max: number | null;
+  share: boolean;
 };
+
+export const MAX_PARTICIPANTS = 100;
+export const roomSizes = [2, 5, 10, 25, 50] as const;
 
 const ID = /^[A-Za-z0-9]{10}$/;
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
@@ -77,6 +86,8 @@ const toInfo = (room: Room, meta: RoomMeta): RoomInfo => ({
   participants: room.numParticipants,
   approval: !!meta.approval,
   theme: toTheme(meta.theme),
+  max: meta.max ?? null,
+  share: !!meta.share,
 });
 
 export async function createRoom(input: {
@@ -86,6 +97,8 @@ export async function createRoom(input: {
   approval?: boolean;
   theme?: Theme | null;
   hostUser?: string | null;
+  max?: number | null;
+  share?: boolean;
 }) {
   const id = newId();
   const hostKey = randomBytes(24).toString('base64url');
@@ -98,6 +111,8 @@ export async function createRoom(input: {
     ...(input.visibility === 'private' && input.approval ? { approval: true } : {}),
     ...(input.theme ? { theme: input.theme } : {}),
     ...(input.hostUser ? { hostUser: input.hostUser } : {}),
+    ...(input.max ? { max: input.max } : {}),
+    ...(input.share ? { share: true } : {}),
   };
   await rooms().createRoom({
     name: id,
@@ -105,7 +120,8 @@ export async function createRoom(input: {
     // a dropped connection), or after 2 minutes if nobody ever came in
     emptyTimeout: 2 * 60,
     departureTimeout: 20,
-    maxParticipants: 100,
+    // LiveKit refuses anyone past the limit; the token endpoint says "full" before it comes to that
+    maxParticipants: input.max ?? MAX_PARTICIPANTS,
     metadata: JSON.stringify(meta),
   });
   return { id, hostKey };
@@ -139,25 +155,46 @@ export type Role = 'host' | 'guest';
 /** Everyone in the room can read it; only the server can write it (it's signed into the token). */
 export type ParticipantMeta = { role: Role } & Partial<RoomProfile>;
 
-export async function joinToken(roomId: string, name: string, role: Role, profile?: RoomProfile | null) {
+/**
+ * What someone may publish. Everyone can talk and turn on their camera; the screen is the host's,
+ * unless the host lets everyone share.
+ */
+const sourcesFor = (role: Role, guestsShare: boolean) =>
+  role === 'host' || guestsShare
+    ? [TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO, TrackSource.CAMERA, TrackSource.MICROPHONE]
+    : [TrackSource.CAMERA, TrackSource.MICROPHONE];
+
+/** The full permission set (LiveKit replaces permissions as a whole, never field by field). */
+const permissionFor = (role: Role, guestsShare: boolean) => ({
+  canSubscribe: true,
+  canPublish: true,
+  canPublishData: true,
+  canPublishSources: sourcesFor(role, guestsShare),
+  canUpdateMetadata: false,
+});
+
+export async function joinToken(
+  roomId: string,
+  name: string,
+  role: Role,
+  profile?: RoomProfile | null,
+  guestsShare = false,
+) {
   const metadata: ParticipantMeta = { role, ...profile };
   const token = new AccessToken(config.key, config.secret, {
-    identity: `${role === 'host' ? 'h' : 'g'}_${randomBytes(6).toString('base64url')}`,
+    identity: `p_${randomBytes(6).toString('base64url')}`,
     name,
     ttl: '8h',
     metadata: JSON.stringify(metadata),
   });
+  // No roomAdmin: moderation goes through beam's API (checked against the host key), so a token
+  // never carries more power than its holder has right now, even after the host role moves on
   token.addGrant({
     room: roomId,
     roomJoin: true,
     canSubscribe: true,
     canPublishData: true,
-    // Only the host can share the screen; everyone can talk and turn on their camera
-    canPublishSources:
-      role === 'host'
-        ? [TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO, TrackSource.CAMERA, TrackSource.MICROPHONE]
-        : [TrackSource.CAMERA, TrackSource.MICROPHONE],
-    roomAdmin: role === 'host',
+    canPublishSources: sourcesFor(role, guestsShare),
   });
   return { token: await token.toJwt(), serverUrl: config.url };
 }
@@ -165,6 +202,71 @@ export async function joinToken(roomId: string, name: string, role: Role, profil
 /** Host actions; the caller has already checked the host key. */
 export const removeFromRoom = (roomId: string, identity: string) => rooms().removeParticipant(roomId, identity);
 export const endRoom = (roomId: string) => rooms().deleteRoom(roomId);
+
+const readMeta = (metadata: string): Partial<ParticipantMeta> => {
+  try {
+    return JSON.parse(metadata || '{}');
+  } catch {
+    return {};
+  }
+};
+
+/** Host settings that can change during the room: who may share, and asking before letting in. */
+export async function updateSettings(roomId: string, meta: RoomMeta, change: { share?: boolean; approval?: boolean }) {
+  const next: RoomMeta = { ...meta };
+  if (change.share !== undefined) next.share = change.share;
+  // Only private rooms can ask first (a public room is listed for anyone to walk in)
+  if (change.approval !== undefined && meta.visibility === 'private') next.approval = change.approval;
+  await rooms().updateRoomMetadata(roomId, JSON.stringify(next));
+
+  // Give (or take back) the screen to everyone already in the room. Taking it back stops their share.
+  if (change.share !== undefined && change.share !== !!meta.share) {
+    const people = await rooms().listParticipants(roomId);
+    await Promise.all(
+      people
+        .filter((p) => readMeta(p.metadata).role !== 'host')
+        .map((p) => rooms().updateParticipant(roomId, p.identity, { permission: permissionFor('guest', change.share!) })),
+    );
+  }
+  return next;
+}
+
+/**
+ * Hands the room to someone else in it: a new host key (so the old one stops working), the role
+ * and permissions swapped, and the new key delivered to the new host's browser only, from the
+ * server (a data message no participant can fake, since it has no sender).
+ */
+export async function transferHost(roomId: string, meta: RoomMeta, identity: string) {
+  const target = await rooms().getParticipant(roomId, identity);
+  const hostKey = randomBytes(24).toString('base64url');
+  const targetMeta = readMeta(target.metadata);
+  await rooms().updateRoomMetadata(
+    roomId,
+    JSON.stringify({
+      ...meta,
+      host: target.name || meta.host,
+      hostKeyHash: hash(hostKey).toString('hex'),
+      hostUser: targetMeta.uid,
+    } satisfies RoomMeta),
+  );
+
+  const people = await rooms().listParticipants(roomId);
+  await Promise.all(
+    people.map((p) => {
+      const pm = readMeta(p.metadata);
+      const role: Role = p.identity === identity ? 'host' : 'guest';
+      if (pm.role === role) return null;
+      return rooms().updateParticipant(roomId, p.identity, {
+        metadata: JSON.stringify({ ...pm, role }),
+        permission: permissionFor(role, !!meta.share),
+      });
+    }),
+  );
+  await rooms().sendData(roomId, new TextEncoder().encode(JSON.stringify({ hostKey })), DataPacket_Kind.RELIABLE, {
+    destinationIdentities: [identity],
+    topic: 'host-key',
+  });
+}
 
 export type LiveParticipant = {
   identity: string;

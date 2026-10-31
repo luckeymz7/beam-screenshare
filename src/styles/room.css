@@ -1086,3 +1086,59 @@
     display: none;
   }
 }
+
+/* ---------- host settings, several screens ---------- */
+
+.room-settings {
+  position: relative;
+}
+.room-settings summary {
+  list-style: none;
+}
+.room-settings summary::-webkit-details-marker {
+  display: none;
+}
+.room-settings[open] summary {
+  border-color: var(--faint);
+}
+.settings-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.5rem);
+  z-index: 30;
+  display: grid;
+  gap: 0.75rem;
+  width: min(22rem, calc(100vw - 2rem));
+  padding: 0.9rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: 0 16px 32px -12px rgb(0 0 0 / 0.45);
+}
+.screens-switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+}
+.chip-btn {
+  height: 1.9rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: 13px var(--font-sans);
+  cursor: pointer;
+}
+.chip-btn.on {
+  border-color: var(--accent);
+  background: rgb(var(--accent-rgb) / 0.12);
+  color: var(--fg);
+}
+.pc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
