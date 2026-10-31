@@ -24,6 +24,22 @@ const decoder = new TextDecoder();
 
 type Floating = { id: number; emoji: string; x: number; from: string };
 
+// Safari's prefixed full screen and picture in picture (iPhone has no element full screen at all)
+type IOSVideo = HTMLVideoElement & {
+  webkitEnterFullscreen?: () => void;
+  webkitSetPresentationMode?: (mode: 'inline' | 'picture-in-picture' | 'fullscreen') => void;
+  webkitPresentationMode?: string;
+};
+type WebkitDocument = Document & {
+  webkitFullscreenElement?: Element | null;
+  webkitExitFullscreen?: () => void;
+  webkitFullscreenEnabled?: boolean;
+};
+const doc = () => document as WebkitDocument;
+const fullscreenElement = () => doc().fullscreenElement ?? doc().webkitFullscreenElement ?? null;
+const exitFullscreen = () => (doc().exitFullscreen ? void doc().exitFullscreen() : doc().webkitExitFullscreen?.());
+const elementFullscreen = () => !!(doc().fullscreenEnabled || doc().webkitFullscreenEnabled);
+
 export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; hostKey: string | null }) {
   const room = useRoomContext();
   const isHost = role === 'host';
@@ -104,15 +120,37 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
   const stageRef = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
   useEffect(() => {
-    const onChange = () => setFullscreen(document.fullscreenElement === stageRef.current);
+    const onChange = () => setFullscreen(fullscreenElement() === stageRef.current);
     document.addEventListener('fullscreenchange', onChange);
-    return () => document.removeEventListener('fullscreenchange', onChange);
+    document.addEventListener('webkitfullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      document.removeEventListener('webkitfullscreenchange', onChange);
+    };
   }, []);
-  const toggleFullscreen = () =>
-    document.fullscreenElement ? document.exitFullscreen() : stageRef.current?.requestFullscreen().catch(() => {});
+  const stageVideo = () => stageRef.current?.querySelector('video') as IOSVideo | null | undefined;
+  const toggleFullscreen = () => {
+    const stage = stageRef.current as (HTMLDivElement & { webkitRequestFullscreen?: () => void }) | null;
+    if (!stage) return;
+    if (fullscreenElement()) return exitFullscreen();
+    if (stage.requestFullscreen) return void stage.requestFullscreen().catch(() => videoFullscreen());
+    if (stage.webkitRequestFullscreen) return stage.webkitRequestFullscreen(); // older iPad Safari
+    videoFullscreen();
+  };
+  // iPhone Safari can't put an element in full screen, only a <video> in its own player
+  const videoFullscreen = () => {
+    const video = stageVideo();
+    if (video?.webkitEnterFullscreen) video.webkitEnterFullscreen();
+    else notify('Full screen is not available in this browser.');
+  };
   const pip = () => {
-    const video = stageRef.current?.querySelector('video');
+    const video = stageVideo();
     if (!video) return;
+    if (!video.requestPictureInPicture && video.webkitSetPresentationMode) {
+      return video.webkitSetPresentationMode(
+        video.webkitPresentationMode === 'picture-in-picture' ? 'inline' : 'picture-in-picture',
+      );
+    }
     (document.pictureInPictureElement ? document.exitPictureInPicture() : video.requestPictureInPicture()).catch(() =>
       notify('Picture in picture is not available in this browser.'),
     );
@@ -352,14 +390,16 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
                   )}
                 </>
               )}
-              <button
-                className="icon"
-                onClick={toggleFullscreen}
-                title="Full screen (F)"
-                aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
-              >
-                <Icon name={fullscreen ? 'shrink' : 'expand'} size={16} />
-              </button>
+              {(elementFullscreen() || showVideo) && (
+                <button
+                  className="icon"
+                  onClick={toggleFullscreen}
+                  title="Full screen (F)"
+                  aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+                >
+                  <Icon name={fullscreen ? 'shrink' : 'expand'} size={16} />
+                </button>
+              )}
             </div>
 
             {isHost && !local.isScreenShareEnabled && (
