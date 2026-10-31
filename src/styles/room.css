@@ -792,3 +792,297 @@
   translate: -50% -50%;
   z-index: 2;
 }
+
+/* ---------- waiting at the door ---------- */
+
+.waiting-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.door {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgb(var(--accent-rgb) / 0.5);
+  border-radius: 12px;
+  background: rgb(var(--accent-rgb) / 0.07);
+}
+.door-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 500;
+}
+.door ul {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.door li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+.door-name {
+  flex: 1;
+  min-width: 6rem;
+  color: var(--fg);
+  font-size: 14px;
+}
+
+/* ---------- drawing on the screen ---------- */
+
+.draw-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.draw-layer.drawing {
+  pointer-events: auto;
+  touch-action: none;
+  cursor: crosshair;
+}
+.draw-tools {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 12px;
+  background: rgb(27 27 26 / 0.88);
+}
+.swatch {
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.swatch.on {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px rgb(0 0 0 / 0.5);
+}
+.icon.locked {
+  opacity: 0.6;
+}
+
+/* ---------- tiles: avatars, open a profile ---------- */
+
+.tiles-wrap {
+  position: relative;
+  display: grid;
+  gap: 0.75rem;
+}
+.tile-open {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.tile-open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 10px;
+}
+.tile-remove {
+  z-index: 2;
+}
+.tile.open {
+  border-color: var(--faint);
+}
+.avatar {
+  overflow: hidden;
+  border: 0;
+  background: none;
+}
+.tile-name .star {
+  flex: none;
+  color: var(--accent);
+  font-size: 11px;
+}
+.tile.premium {
+  border-color: rgb(var(--accent-rgb) / 0.45);
+}
+.tile-card {
+  justify-self: start;
+}
+
+/* ---------- a premium host's theme ---------- */
+
+.room.themed .stage {
+  border-color: color-mix(in srgb, var(--theme-accent) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--theme-accent) 25%, transparent),
+    0 24px 60px -30px color-mix(in srgb, var(--theme-accent) 60%, transparent);
+}
+.room.themed .stage-empty.hatch {
+  background:
+    repeating-linear-gradient(45deg, transparent 0 7px, rgb(255 255 255 / 0.04) 7px 8px),
+    linear-gradient(135deg, color-mix(in srgb, var(--theme-primary) 85%, #0e0e0d), #0e0e0d);
+}
+.room.themed .round.share:not(.active) {
+  background: var(--theme-accent);
+}
+.room.themed .room-title h1 {
+  background: linear-gradient(90deg, var(--fg), var(--theme-accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.room.themed .live-dot,
+.room.themed .live-dot::after {
+  background: var(--theme-accent);
+}
+
+/* toast with a link (a locked feature) */
+.toast {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.9rem;
+}
+.toast-action {
+  color: var(--accent);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* ---------- premium entrances ---------- */
+
+.entrance {
+  --e-accent: var(--accent);
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  pointer-events: none;
+}
+.entrance-name {
+  position: relative;
+  padding: 0.55rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--e-accent) 60%, transparent);
+  border-radius: 999px;
+  background: rgb(14 14 13 / 0.82);
+  color: #f4f3ef;
+  font-size: 14px;
+  white-space: nowrap;
+  box-shadow: 0 0 32px -6px var(--e-accent);
+  animation: entrance-name 3.2s ease both;
+}
+.entrance-name strong {
+  color: var(--e-accent);
+}
+@keyframes entrance-name {
+  0% {
+    opacity: 0;
+    scale: 0.6;
+  }
+  12% {
+    opacity: 1;
+    scale: 1.06;
+  }
+  20% {
+    scale: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    translate: 0 -12px;
+  }
+}
+
+/* sparkles burst out of the name */
+.spark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  color: var(--e-accent);
+  font-size: var(--size);
+  text-shadow: 0 0 8px var(--e-accent);
+  opacity: 0;
+  animation: spark 1.4s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+@keyframes spark {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(var(--angle)) translateY(0) scale(0.3);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(var(--angle)) translateY(calc(var(--dist) * -1)) scale(1);
+  }
+}
+
+/* confetti falls across the whole picture */
+.confetti-piece {
+  position: absolute;
+  top: -12px;
+  width: 7px;
+  height: 11px;
+  border-radius: 2px;
+  opacity: 0;
+  animation: confetti 2.6s ease-in both;
+}
+@keyframes confetti {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) rotate(0);
+  }
+  100% {
+    opacity: 0.9;
+    transform: translate(var(--drift), 110cqh) rotate(var(--spin));
+  }
+}
+.entrance-confetti {
+  container-type: size;
+}
+
+/* a ring of their colour opens behind the name */
+.glow-ring {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--e-accent) 70%, transparent), transparent 70%);
+  animation: glow-ring 2.4s ease-out both;
+}
+@keyframes glow-ring {
+  0% {
+    opacity: 0;
+    scale: 0.4;
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    scale: 14;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spark,
+  .confetti-piece,
+  .glow-ring {
+    display: none;
+  }
+}

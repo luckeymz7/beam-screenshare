@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { getRoom, isHost } from '../../../../lib/livekit';
-import { getThumb, saveThumb } from '../../../../lib/db';
+import { getThumb, saveThumb } from '../../../../lib/thumbs';
 import { unreachable } from '../../../../lib/http';
 
 const TYPES = new Set(['image/jpeg', 'image/webp']);

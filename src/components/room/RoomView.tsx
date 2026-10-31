@@ -16,7 +16,9 @@ import { saveNoiseFilter, saveQuality, savedNoiseFilter, savedQuality, since } f
 import type { Role, RoomInfo } from '../../lib/livekit';
 import {
   canShareScreen,
+  defaultQuality,
   frameRates,
+  isPremiumQuality,
   resolutions,
   shareOptions,
   toQuality,
@@ -24,6 +26,10 @@ import {
   type Quality,
   type Resolution,
 } from './share';
+import { themeStyle } from '../../lib/themes';
+import { DrawLayer, COLORS } from './DrawLayer';
+import { Door } from './Door';
+import { Entrances } from './Entrance';
 import { useStreamStats } from './useStreamStats';
 import { useScreenLayer } from './useScreenLayer';
 import { useNoiseFilter } from './noiseFilter';
@@ -53,7 +59,20 @@ const fullscreenElement = () => doc().fullscreenElement ?? doc().webkitFullscree
 const exitFullscreen = () => (doc().exitFullscreen ? void doc().exitFullscreen() : doc().webkitExitFullscreen?.());
 const elementFullscreen = () => !!(doc().fullscreenEnabled || doc().webkitFullscreenEnabled);
 
-export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; hostKey: string | null }) {
+type Toast = { text: string; action?: { label: string; href: string } };
+
+export function RoomView({
+  info,
+  role,
+  hostKey,
+  premium,
+}: {
+  info: RoomInfo;
+  role: Role;
+  hostKey: string | null;
+  /** From the join token: unlocks the premium share qualities and drawing */
+  premium: boolean;
+}) {
   const t = useT();
   const room = useRoomContext();
   const isHost = role === 'host';
@@ -69,13 +88,15 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
   const stageRef = useRef<HTMLDivElement>(null);
   useScreenLayer(screen?.publication, stageRef);
 
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<Toast | null>(null);
   const toastTimer = useRef(0);
-  const notify = useCallback((message: string, ms = 4000) => {
-    setToast(message);
+  const notify = useCallback((text: string, ms = 4000, action?: Toast['action']) => {
+    setToast({ text, action });
     clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), ms);
   }, []);
+  /** A locked feature was tried: say what it needs and where to get it */
+  const upsell = (text: string) => notify(text, 6000, { label: t('premium.cta'), href: '/premium' });
 
   // ---- chat (kept mounted so messages arrive while the panel is closed)
   const chat = useChat();
@@ -102,8 +123,12 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
 
   // ---- screen share (host)
   const canShare = useMemo(canShareScreen, []);
-  const [quality, setQualityState] = useState<Quality>(() => toQuality(savedQuality()));
+  const [quality, setQualityState] = useState<Quality>(() => {
+    const saved = toQuality(savedQuality());
+    return premium || !isPremiumQuality(saved) ? saved : defaultQuality;
+  });
   const setQuality = (q: Quality) => {
+    if (!premium && isPremiumQuality(q)) return upsell(t('premium.quality'));
     setQualityState(q);
     saveQuality(q);
   };
@@ -115,6 +140,8 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
       } else {
         const { capture, publish } = shareOptions(quality, shareAudio);
         await local.localParticipant.setScreenShareEnabled(true, capture, publish);
+        // Counted on the admin dashboard
+        fetch(`/api/rooms/${info.id}/shared`, { method: 'POST', headers: { 'x-host-key': hostKey ?? '' } }).catch(() => {});
         // The browser only hands over sound for a tab or the entire screen, and only with its checkbox on
         if (shareAudio && !local.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio)) {
           notify(t('room.noSound'), 10_000);
@@ -196,10 +223,15 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
       notify(t('room.noPip')),
     );
   };
-  // Double-click the picture for full screen, but not a quick double tap on a control
+  // Double-click the picture for full screen, but not a quick double tap on a control (or a doodle)
   const onStageDoubleClick = (e: MouseEvent) => {
-    if (!(e.target as HTMLElement).closest('.dock, button, select, a')) toggleFullscreen();
+    if (!drawing && !(e.target as HTMLElement).closest('.dock, button, select, a')) toggleFullscreen();
   };
+
+  // ---- drawing on the shared screen (premium)
+  const [drawing, setDrawing] = useState(false);
+  const [penColor, setPenColor] = useState(COLORS[0]);
+  const toggleDrawing = () => (premium ? setDrawing(!drawing) : upsell(t('premium.draw')));
   const [showStats, setShowStats] = useState(false);
   const [selfPreview, setSelfPreview] = useState(false);
   // Start hidden again each time you share
@@ -271,9 +303,16 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
     (a) => !a.participant.isLocal,
   );
   const showVideo = !!screen && (!screen.participant.isLocal || selfPreview);
+  useEffect(() => {
+    if (!showVideo) setDrawing(false);
+  }, [showVideo]);
 
   return (
-    <div className={`room ${chatOpen ? 'with-chat' : ''}`}>
+    // A premium host's theme tints the room
+    <div
+      className={`room ${chatOpen ? 'with-chat' : ''} ${info.theme ? 'themed' : ''}`}
+      style={themeStyle(info.theme)}
+    >
       <header className="room-bar">
         <div className="room-title">
           <h1>{info.title}</h1>
@@ -298,18 +337,29 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
         </div>
       </header>
 
+      {isHost && info.approval && hostKey && <Door roomId={info.id} hostKey={hostKey} />}
+
       <div className="room-main">
         <div className="room-col">
           <div
             ref={stageRef}
-            className={`stage ${fullscreen && idle ? 'idle' : ''}`}
+            className={`stage ${fullscreen && idle && !drawing ? 'idle' : ''}`}
             onPointerMove={wake}
             onPointerDown={wake}
             onDoubleClick={onStageDoubleClick}
           >
             <div className="screen">
               {showVideo ? (
-                <VideoTrack trackRef={screen} className="stage-video" />
+                <>
+                  <VideoTrack trackRef={screen} className="stage-video" />
+                  <DrawLayer
+                    active={drawing}
+                    color={penColor}
+                    onColor={setPenColor}
+                    onClose={() => setDrawing(false)}
+                    resetKey={screen.publication?.trackSid}
+                  />
+                </>
               ) : screen ? (
                 // Showing your own screen while sharing it makes an endless mirror and costs CPU
                 <div className="stage-empty hatch">
@@ -388,6 +438,8 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
                 </button>
               )}
 
+              <Entrances />
+
               <div className="reactions-layer" aria-hidden="true">
                 {floating.map((r) => (
                   <span key={r.id} className="float" style={{ left: `${r.x}%` }}>
@@ -412,6 +464,7 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
                       {(Object.keys(resolutions) as Resolution[]).map((r) => (
                         <option key={r} value={r}>
                           {r}
+                          {!premium && isPremiumQuality({ resolution: r, fps: 30 }) ? ' ✦' : ''}
                         </option>
                       ))}
                     </select>
@@ -426,7 +479,7 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
                     >
                       {frameRates.map((f) => (
                         <option key={f} value={f}>
-                          {f} fps
+                          {f} fps{!premium && isPremiumQuality({ resolution: '720p', fps: f }) ? ' ✦' : ''}
                         </option>
                       ))}
                     </select>
@@ -503,6 +556,17 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
                   <Icon name="chat" size={16} />
                   {unread > 0 && <span className="unread">{unread > 9 ? '9+' : unread}</span>}
                 </button>
+                {showVideo && (
+                  <button
+                    className={`icon ${drawing ? 'on' : ''} ${premium ? '' : 'locked'}`}
+                    onClick={toggleDrawing}
+                    title={t('draw.title')}
+                    aria-label={t('draw.title')}
+                    aria-pressed={drawing}
+                  >
+                    <Icon name="pen" size={16} />
+                  </button>
+                )}
                 {local.isMicrophoneEnabled && (
                   <button
                     className={`icon ${noiseFilter ? 'on' : ''}`}
@@ -563,7 +627,13 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
 
       {toast && (
         <div className="toast" role="status">
-          {toast}
+          {toast.text}
+          {toast.action && (
+            // A new tab: leaving would drop you out of the room
+            <a className="toast-action" href={toast.action.href} target="_blank" rel="noopener">
+              {toast.action.label}
+            </a>
+          )}
         </div>
       )}
     </div>

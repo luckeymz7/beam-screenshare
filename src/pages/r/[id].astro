@@ -16,7 +16,7 @@ if (!room) Astro.response.status = 404;
   <Row line={false}>
     {
       room ? (
-        <RoomApp client:only="react" room={room.info} lang={lang}>
+        <RoomApp client:only="react" room={room.info} lang={lang} myName={Astro.locals.user?.name}>
           <div class="gate" slot="fallback">
             <p class="eyebrow">{t('page.connecting')}</p>
             <h1 class="gate-title">{room.info.title}</h1>

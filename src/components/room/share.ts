@@ -20,6 +20,9 @@ export type Quality = { resolution: Resolution; fps: FrameRate };
 
 export const defaultQuality: Quality = { resolution: '1080p', fps: 30 };
 
+/** Free goes up to 1080p at 30 fps; above that is premium. */
+export const isPremiumQuality = (q: Quality) => q.fps > 30 || q.resolution === '1440p' || q.resolution === '4K';
+
 export function toQuality(value: unknown): Quality {
   const q = value as Partial<Quality> | null;
   return {

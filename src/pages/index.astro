@@ -7,9 +7,12 @@ import CreateRoom from '../components/CreateRoom';
 import RoomList from '../components/RoomList';
 import { listRooms, type RoomCard } from '../lib/rooms';
 import { translator } from '../lib/i18n';
+import { listFriends, type Friend } from '../lib/friends';
 
-const { lang } = Astro.locals;
+const { lang, user } = Astro.locals;
 const t = translator(lang);
+// Logged in: which friends are live right now
+const friendsLive: Friend[] = user ? (await listFriends(user.id).catch(() => null))?.friends.filter((f) => f.live) ?? [] : [];
 let rooms: RoomCard[] = [];
 let failed = false;
 try {
@@ -47,8 +50,42 @@ const features = [
     </div>
   </Row>
 
+  {
+    friendsLive.length > 0 && (
+      <Section id="friends" eyebrow={t('friends.homeEyebrow')} title={t('friends.homeTitle')}>
+        <ul class="friends-live">
+          {friendsLive.map((f) => (
+            <li>
+              <span class="fl-avatar">
+                {f.image ? (
+                  <img src={f.image} alt="" width="32" height="32" referrerpolicy="no-referrer" />
+                ) : (
+                  <span>{f.name.slice(0, 1).toUpperCase()}</span>
+                )}
+                <span class="live-dot" />
+              </span>
+              <span class="fl-text">
+                <strong>{f.name}</strong>
+                <span>
+                  {f.live?.title
+                    ? t(f.live.hosting ? 'friends.hosting' : 'friends.inRoom', { title: f.live.title })
+                    : t('friends.inPrivate')}
+                </span>
+              </span>
+              {f.live?.room && (
+                <a class="btn primary" href={`/r/${f.live.room}`}>
+                  {t('friends.join')}
+                </a>
+              )}
+            </li>
+          ))}
+        </ul>
+      </Section>
+    )
+  }
+
   <Section id="start" eyebrow={t('home.startEyebrow')} title={t('home.startTitle')}>
-    <CreateRoom client:load lang={lang} />
+    <CreateRoom client:load lang={lang} myName={user?.name} />
   </Section>
 
   <Section id="live" eyebrow={t('home.liveEyebrow')} title={t('home.liveTitle')}>
@@ -57,6 +94,61 @@ const features = [
 </Layout>
 
 <style>
+  .friends-live {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .friends-live li {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
+  }
+  .fl-avatar {
+    position: relative;
+    flex: none;
+    display: grid;
+  }
+  .fl-avatar img,
+  .fl-avatar > span:first-child {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--surface);
+    color: var(--muted);
+    font-family: var(--font-serif);
+    font-style: italic;
+  }
+  .fl-avatar :global(.live-dot) {
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    border: 2px solid var(--bg);
+    box-sizing: content-box;
+  }
+  .fl-text {
+    display: grid;
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .fl-text strong {
+    color: var(--fg);
+  }
+  .fl-text span {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
   .hero {
     padding-block: 4.5rem 3.5rem;
     max-width: 40rem;

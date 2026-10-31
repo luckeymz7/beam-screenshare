@@ -3,15 +3,16 @@ import { Icon } from './Icon';
 import { saveHostKey, saveName, savedName } from '../lib/client';
 import { errorText, translator, type Lang } from '../lib/i18n';
 
-export default function CreateRoom({ lang }: { lang: Lang }) {
+export default function CreateRoom({ lang, myName }: { lang: Lang; myName?: string | null }) {
   const t = translator(lang);
   const [title, setTitle] = useState('');
   const [name, setName] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
+  const [approval, setApproval] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => setName(savedName()), []);
+  useEffect(() => setName(savedName() || myName || ''), [myName]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -21,7 +22,7 @@ export default function CreateRoom({ lang }: { lang: Lang }) {
       const res = await fetch('/api/rooms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, name, visibility }),
+        body: JSON.stringify({ title, name, visibility, approval: visibility === 'private' && approval }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(errorText(t, data, 'create.failed'));
@@ -76,6 +77,14 @@ export default function CreateRoom({ lang }: { lang: Lang }) {
           <Icon name="arrow" size={14} />
         </button>
       </div>
+      {visibility === 'private' && (
+        <label className="check">
+          <input type="checkbox" checked={approval} onChange={(e) => setApproval(e.target.checked)} />
+          <span>
+            <strong>{t('create.approval')}</strong> {t('create.approvalHint')}
+          </span>
+        </label>
+      )}
       {error && <p className="error">{error}</p>}
     </form>
   );

@@ -1,42 +1,61 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { VideoTrack, isTrackReference, useIsMuted, useIsSpeaking, useTracks } from '@livekit/components-react';
-import { RemoteTrackPublication, Track, VideoQuality, type Participant } from 'livekit-client';
+import { RemoteTrackPublication, Track, VideoQuality } from 'livekit-client';
 import type { TrackReferenceOrPlaceholder } from '@livekit/components-react';
 import { Icon } from '../Icon';
+import { Avatar } from '../Account';
 import { useT } from '../i18n';
+import { metaOf } from './meta';
+import { ProfileCard } from './ProfileCard';
 
-const roleOf = (p: Participant) => {
-  try {
-    return (JSON.parse(p.metadata ?? '{}') as { role?: string }).role;
-  } catch {
-    return undefined;
-  }
-};
-
-const initials = (name: string) =>
-  name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((w) => w[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase() || '?';
-
-/** Everyone in the room, under the stage: camera if on, initials otherwise. */
+/** Everyone in the room, under the stage: camera if on, their picture or initials otherwise. */
 export function Tiles({ isHost, onRemove }: { isHost: boolean; onRemove: (identity: string) => void }) {
   const cameras = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }]);
+  const [open, setOpen] = useState<string | null>(null);
+  const box = useRef<HTMLDivElement>(null);
   // The host first, then you, then everyone else in join order
   const sorted = [...cameras].sort(
     (a, b) =>
-      Number(roleOf(b.participant) === 'host') - Number(roleOf(a.participant) === 'host') ||
+      Number(metaOf(b.participant).role === 'host') - Number(metaOf(a.participant).role === 'host') ||
       Number(b.participant.isLocal) - Number(a.participant.isLocal),
   );
+  const opened = sorted.find((t) => t.participant.identity === open)?.participant;
+
+  // The card closes on a click anywhere else
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: PointerEvent) => !box.current?.contains(e.target as Node) && setOpen(null);
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [open]);
+
   return (
-    <ul className="tiles">
-      {sorted.map((t) => (
-        <Tile key={t.participant.identity} trackRef={t} canRemove={isHost && !t.participant.isLocal} onRemove={onRemove} />
-      ))}
-    </ul>
+    <div className="tiles-wrap" ref={box}>
+      <ul className="tiles">
+        {sorted.map((t) => (
+          <Tile
+            key={t.participant.identity}
+            trackRef={t}
+            canRemove={isHost && !t.participant.isLocal}
+            onRemove={onRemove}
+            open={open === t.participant.identity}
+            onOpen={(o) => setOpen(o ? t.participant.identity : null)}
+          />
+        ))}
+      </ul>
+      {/* Under the row rather than in the tile: the row scrolls sideways and would clip it */}
+      {opened && (
+        <div className="tile-card">
+          <ProfileCard
+            name={opened.name || opened.identity}
+            meta={metaOf(opened)}
+            you={opened.isLocal}
+            friendButton
+            onClose={() => setOpen(null)}
+          />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -44,13 +63,18 @@ function Tile({
   trackRef,
   canRemove,
   onRemove,
+  open,
+  onOpen,
 }: {
   trackRef: TrackReferenceOrPlaceholder;
   canRemove: boolean;
   onRemove: (identity: string) => void;
+  open: boolean;
+  onOpen: (open: boolean) => void;
 }) {
   const t = useT();
   const p = trackRef.participant;
+  const meta = metaOf(p);
   const speaking = useIsSpeaking(p);
   const muted = useIsMuted({ participant: p, source: Track.Source.Microphone });
   const [armed, setArmed] = useState(false);
@@ -69,17 +93,21 @@ function Tile({
   }, [pub]);
 
   return (
-    <li className={`tile ${speaking ? 'speaking' : ''}`}>
+    <li className={`tile ${speaking ? 'speaking' : ''} ${meta.premium ? 'premium' : ''} ${open ? 'open' : ''}`}>
+      <button className="tile-open" onClick={() => onOpen(!open)} aria-label={name} aria-expanded={open} />
       {hasVideo ? (
         <VideoTrack trackRef={trackRef} className={`tile-video ${p.isLocal ? 'mirror' : ''}`} />
       ) : (
-        <span className="avatar">{initials(name)}</span>
+        <span className="avatar">
+          <Avatar name={name} image={meta.image} size={48} />
+        </span>
       )}
       <span className="tile-name">
         {muted && <Icon name="micOff" size={12} />}
         <span className="tile-label">{name}</span>
+        {meta.premium && <span className="star" title="premium">✦</span>}
         {p.isLocal && <span className="you">{t('tile.you')}</span>}
-        {roleOf(p) === 'host' && <span className="host">{t('tile.host')}</span>}
+        {meta.role === 'host' && <span className="host">{t('tile.host')}</span>}
       </span>
       {canRemove && (
         <button

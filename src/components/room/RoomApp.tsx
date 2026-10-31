@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { LiveKitRoom, RoomAudioRenderer } from '@livekit/components-react';
 import { DisconnectReason, VideoPresets, type RoomOptions } from 'livekit-client';
 import { Icon } from '../Icon';
@@ -8,22 +8,22 @@ import { errorText, translator, type Lang } from '../../lib/i18n';
 import type { Role, RoomInfo } from '../../lib/livekit';
 import { RoomView } from './RoomView';
 
-type Session = { token: string; serverUrl: string; role: Role; room: RoomInfo };
-type Phase = 'prejoin' | 'joined' | 'left' | 'removed' | 'ended';
+type Session = { token: string; serverUrl: string; role: Role; room: RoomInfo; premium: boolean };
+type Phase = 'prejoin' | 'waiting' | 'joined' | 'left' | 'removed' | 'ended' | 'denied';
 
 // Touch screens open the keyboard on autofocus, covering half the page
 const touch = () => matchMedia('(pointer: coarse)').matches;
 
-export default function RoomApp({ room, lang }: { room: RoomInfo; lang: Lang }) {
+export default function RoomApp({ room, lang, myName }: { room: RoomInfo; lang: Lang; myName?: string | null }) {
   const t = useMemo(() => translator(lang), [lang]);
   return (
     <TContext.Provider value={t}>
-      <Room room={room} />
+      <Room room={room} myName={myName} />
     </TContext.Provider>
   );
 }
 
-function Room({ room }: { room: RoomInfo }) {
+function Room({ room, myName }: { room: RoomInfo; myName?: string | null }) {
   const t = useT();
   const [phase, setPhase] = useState<Phase>('prejoin');
   const [session, setSession] = useState<Session | null>(null);
@@ -33,9 +33,11 @@ function Room({ room }: { room: RoomInfo }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [hostKey, setHostKey] = useState<string | null>(null);
+  // In a room that asks first: this browser's request, until the host decides
+  const knock = useRef<{ requestId: string; requestSecret: string } | null>(null);
 
   useEffect(() => {
-    setName(savedName());
+    setName(savedName() || myName || '');
     // A host link (#host=<key>) moves the host role to this device
     const fromLink = new URLSearchParams(location.hash.slice(1)).get('host');
     if (fromLink) {
@@ -68,20 +70,39 @@ function Room({ room }: { room: RoomInfo }) {
       const res = await fetch(`/api/rooms/${room.id}/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, hostKey }),
+        body: JSON.stringify({ name, hostKey, ...knock.current }),
       });
       if (res.status === 404) return setPhase('ended');
       const data = await res.json();
+      if (res.status === 202) {
+        // Waiting at the door: keep the request (the secret only comes with the first answer)
+        if (data.requestSecret) knock.current = { requestId: data.requestId, requestSecret: data.requestSecret };
+        saveName(name.trim());
+        return setPhase('waiting');
+      }
+      if (data.code === 'denied') {
+        knock.current = null;
+        return setPhase('denied');
+      }
+      if (data.code === 'expired') knock.current = null;
       if (!res.ok) throw new Error(errorText(t, data, 'gate.joinFailed'));
       saveName(name.trim());
       setSession(data);
       setPhase('joined');
     } catch (err) {
       setError(err instanceof TypeError ? t('err.network') : (err as Error).message);
+      setPhase('prejoin');
     } finally {
       setBusy(false);
     }
   }
+
+  // Ask again every few seconds until the host lets us in (or not)
+  useEffect(() => {
+    if (phase !== 'waiting') return;
+    const id = setInterval(() => join(), 2500);
+    return () => clearInterval(id);
+  });
 
   if (phase === 'joined' && session) {
     return (
@@ -104,17 +125,43 @@ function Room({ room }: { room: RoomInfo }) {
         }
         onError={(err) => setError(err.message)}
       >
-        <RoomView info={session.room} role={session.role} hostKey={hostKey} />
+        <RoomView info={session.room} role={session.role} hostKey={hostKey} premium={session.premium} />
         <RoomAudioRenderer />
       </LiveKitRoom>
     );
   }
 
-  if (phase === 'left' || phase === 'removed' || phase === 'ended') {
+  if (phase === 'waiting') {
+    return (
+      <div className="gate">
+        <p className="eyebrow">
+          <Icon name="door" size={12} /> {t('gate.private')}
+        </p>
+        <h1 className="gate-title">{room.title}</h1>
+        <p className="muted waiting-line">
+          <span className="live-dot" /> {t('gate.waitingHost', { host: room.host })}
+        </p>
+        <div className="gate-actions">
+          <button
+            className="btn"
+            onClick={() => {
+              knock.current = null;
+              setPhase('prejoin');
+            }}
+          >
+            {t('gate.cancel')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === 'left' || phase === 'removed' || phase === 'ended' || phase === 'denied') {
     const copy = {
       left: { title: t('gate.left'), body: t('gate.leftBody') },
       removed: { title: t('gate.removed'), body: t('gate.removedBody') },
       ended: { title: t('page.ended'), body: t('gate.endedBody') },
+      denied: { title: t('gate.denied'), body: t('gate.deniedBody') },
     }[phase];
     return (
       <div className="gate">
@@ -142,7 +189,9 @@ function Room({ room }: { room: RoomInfo }) {
         {room.visibility === 'public' ? t('gate.public') : t('gate.private')} · {t('gate.hostedBy', { host: room.host })}
       </p>
       <h1 className="gate-title">{room.title}</h1>
-      <p className="muted">{hostKey ? t('gate.hostNote') : t('gate.guestNote')}</p>
+      <p className="muted">
+        {hostKey ? t('gate.hostNote') : room.approval ? t('gate.approvalNote') : t('gate.guestNote')}
+      </p>
 
       <label className="field">
         <span className="label">{t('create.name')}</span>
