@@ -6,9 +6,10 @@ import {
   useLocalParticipant,
   useParticipants,
   useRoomContext,
+  useAudioPlayback,
   useTracks,
 } from '@livekit/components-react';
-import { RemoteTrackPublication, Track, VideoQuality, type LocalVideoTrack } from 'livekit-client';
+import { RemoteAudioTrack, RemoteTrackPublication, Track, VideoQuality, type LocalVideoTrack } from 'livekit-client';
 import { Icon } from '../Icon';
 import { since } from '../../lib/client';
 import type { Role, RoomInfo } from '../../lib/livekit';
@@ -59,10 +60,10 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
 
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef(0);
-  const notify = useCallback((message: string) => {
+  const notify = useCallback((message: string, ms = 4000) => {
     setToast(message);
     clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 4000);
+    toastTimer.current = window.setTimeout(() => setToast(null), ms);
   }, []);
 
   // ---- chat (kept mounted so messages arrive while the panel is closed)
@@ -98,6 +99,13 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
       } else {
         const m = shareModes[mode];
         await local.localParticipant.setScreenShareEnabled(true, m.capture(shareAudio), m.publish);
+        // The browser only hands over sound for a tab or the entire screen, and only with its checkbox on
+        if (shareAudio && !local.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio)) {
+          notify(
+            'Sharing without sound. To include it, share a tab with "Share tab audio" on, or your entire screen with "Share system audio" on. A single window can’t share sound.',
+            10_000,
+          );
+        }
       }
     } catch (e) {
       // Closing the browser's picker is not an error worth showing
@@ -212,6 +220,15 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
   };
 
   const sharer = screen?.participant;
+  const [screenAudio] = useTracks([Track.Source.ScreenShareAudio]);
+  const hasSound = !!screenAudio && screenAudio.participant === sharer;
+  const [streamMuted, setStreamMuted] = useState(false);
+  const screenAudioTrack = screenAudio?.publication?.track;
+  useEffect(() => {
+    if (screenAudioTrack instanceof RemoteAudioTrack) screenAudioTrack.setVolume(streamMuted ? 0 : 1);
+  }, [screenAudioTrack, streamMuted]);
+  // Safari (and iPhone) may refuse to start audio until the page is tapped again
+  const { canPlayAudio, startAudio } = useAudioPlayback(room);
   const showVideo = !!screen && (!screen.participant.isLocal || selfPreview);
 
   return (
@@ -282,6 +299,7 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
             {sharer && (
               <span className="stage-tag mono">
                 {sharer.isLocal ? 'you are sharing' : `${sharer.name || 'host'}'s screen`}
+                <span className="tag-sound">{hasSound ? '· with sound' : '· no sound'}</span>
                 {sharer.isLocal && selfPreview && (
                   <button className="tag-btn" onClick={() => setSelfPreview(false)}>
                     hide preview
@@ -308,6 +326,12 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
                   <span>measuring…</span>
                 )}
               </div>
+            )}
+
+            {!canPlayAudio && (
+              <button className="sound-gate btn primary" onClick={() => startAudio()}>
+                <Icon name="volume" size={15} /> Tap to turn on sound
+              </button>
             )}
 
             <div className="reactions-layer" aria-hidden="true">
@@ -373,6 +397,16 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
                 <Icon name="chat" size={16} />
                 {unread > 0 && <span className="unread">{unread > 9 ? '9+' : unread}</span>}
               </button>
+              {hasSound && !sharer?.isLocal && (
+                <button
+                  className={`icon ${streamMuted ? '' : 'on'}`}
+                  onClick={() => setStreamMuted(!streamMuted)}
+                  title={streamMuted ? 'Unmute the stream' : 'Mute the stream'}
+                  aria-label={streamMuted ? 'Unmute the stream' : 'Mute the stream'}
+                >
+                  <Icon name={streamMuted ? 'volumeOff' : 'volume'} size={16} />
+                </button>
+              )}
               {screen && (
                 <>
                   <button
