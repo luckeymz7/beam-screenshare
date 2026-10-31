@@ -24,6 +24,16 @@ export type Me = {
   admin: boolean;
 };
 
+/**
+ * getMe, once per request: the header and the page both need it, and each lookup is a trip to
+ * the database. Kept on the request's locals, so it never outlives the request.
+ */
+export function meOf(locals: App.Locals): Promise<Me | null> {
+  const l = locals as App.Locals & { mePromise?: Promise<Me | null> };
+  l.mePromise ??= getMe(locals.user).catch(() => null);
+  return l.mePromise;
+}
+
 export async function getMe(user: User | null | undefined): Promise<Me | null> {
   if (!user) return null;
   await ensureDb();

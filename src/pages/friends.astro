@@ -9,7 +9,9 @@ import '../styles/room.css';
 
 const { lang, user } = Astro.locals;
 const t = translator(lang);
-const initial = user ? { ...(await listFriends(user.id)), code: await friendCode(user.id) } : null;
+const initial = user
+  ? await Promise.all([listFriends(user.id), friendCode(user.id)]).then(([lists, code]) => ({ ...lists, code }))
+  : null;
 ---
 
 <Layout title={`${t('friends.title')} — beam`}>

@@ -90,11 +90,14 @@ let ready: Promise<void> | undefined;
 
 export function ensureDb() {
   ready ??= client.batch(MIGRATION, 'write').then(async () => {
-    for (const sql of ADDED_COLUMNS) {
-      await client.execute(sql).catch((e: Error) => {
-        if (!/duplicate column/i.test(e.message)) throw e;
-      });
-    }
+    // Side by side: one round trip instead of one per column
+    await Promise.all(
+      ADDED_COLUMNS.map((sql) =>
+        client.execute(sql).catch((e: Error) => {
+          if (!/duplicate column/i.test(e.message)) throw e;
+        }),
+      ),
+    );
   });
   return ready;
 }

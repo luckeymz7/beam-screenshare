@@ -4,14 +4,14 @@ import Account from './Account';
 import { langMeta, langs, translator } from '../lib/i18n';
 import { emailLogin, providers } from '../lib/auth';
 import { incomingCount } from '../lib/friends';
-import { getMe } from '../lib/users';
+import { meOf } from '../lib/users';
 
 const { lang, user } = Astro.locals;
 const t = translator(lang);
 const path = Astro.url.pathname;
-const me = await getMe(user).catch(() => null);
+// In parallel, and shared with the page (one trip each to the database)
+const [me, requests] = await Promise.all([meOf(Astro.locals), user ? incomingCount(user.id).catch(() => 0) : 0]);
 const account = me && { name: me.name, image: me.image, premium: me.premium, admin: me.admin };
-const requests = me ? await incomingCount(me.id).catch(() => 0) : 0;
 ---
 
 <header class="header">

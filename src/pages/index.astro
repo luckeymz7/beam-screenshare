@@ -11,16 +11,20 @@ import { listFriends, type Friend } from '../lib/friends';
 
 const { lang, user } = Astro.locals;
 const t = translator(lang);
-// Logged in: which friends are live right now
-const friendsLive: Friend[] = user ? (await listFriends(user.id).catch(() => null))?.friends.filter((f) => f.live) ?? [] : [];
-let rooms: RoomCard[] = [];
+// The public rooms, and (logged in) which friends are live: asked at the same time
 let failed = false;
-try {
-  rooms = await listRooms();
-} catch (e) {
-  failed = true;
-  console.error('Could not list rooms:', (e as Error).message);
-}
+const [rooms, friendsLive] = await Promise.all([
+  listRooms().catch((e): RoomCard[] => {
+    failed = true;
+    console.error('Could not list rooms:', (e as Error).message);
+    return [];
+  }),
+  user
+    ? listFriends(user.id)
+        .then((l) => l.friends.filter((f) => f.live))
+        .catch((): Friend[] => [])
+    : ([] as Friend[]),
+]);
 
 const features = [
   { icon: 'screen', title: t('home.f1.title'), body: t('home.f1.body') },

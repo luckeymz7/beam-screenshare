@@ -5,12 +5,12 @@ import Section from '../components/Section.astro';
 import Icon from '../components/Icon.astro';
 import Subscribe from '../components/Subscribe';
 import { translator } from '../lib/i18n';
-import { getMe } from '../lib/users';
+import { meOf } from '../lib/users';
 import { billingConfigured, PRICE_CENTS } from '../lib/billing';
 
-const { lang, user } = Astro.locals;
+const { lang } = Astro.locals;
 const t = translator(lang);
-const me = await getMe(user).catch(() => null);
+const me = await meOf(Astro.locals);
 const price = (PRICE_CENTS / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 const perks = [

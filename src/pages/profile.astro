@@ -4,12 +4,12 @@ import Row from '../components/Row.astro';
 import ProfileEditor from '../components/ProfileEditor';
 import LoginPrompt from '../components/LoginPrompt';
 import { translator } from '../lib/i18n';
-import { getMe } from '../lib/users';
+import { meOf } from '../lib/users';
 import '../styles/room.css';
 
-const { lang, user } = Astro.locals;
+const { lang } = Astro.locals;
 const t = translator(lang);
-const me = await getMe(user).catch(() => null);
+const me = await meOf(Astro.locals);
 ---
 
 <Layout title={`${t('profile.title')} — beam`}>
