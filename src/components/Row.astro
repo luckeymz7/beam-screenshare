@@ -1,0 +1,20 @@
+---
+// Full-width band: a fading top rule with crosshairs where it meets the rails.
+type Props = { as?: 'section' | 'div' | 'header' | 'footer'; id?: string; class?: string; line?: boolean };
+const { as: Tag = 'section', id, class: className, line = true } = Astro.props;
+---
+
+<Tag id={id} class:list={[line && 'row', !line && 'row-plain', className]}>
+  {line && <span class="cross l" aria-hidden="true" />}
+  {line && <span class="cross r" aria-hidden="true" />}
+  <div class="col">
+    <slot />
+  </div>
+</Tag>
+
+<style>
+  .row-plain {
+    position: relative;
+    z-index: 1;
+  }
+</style>

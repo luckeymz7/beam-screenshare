@@ -1,0 +1,33 @@
+// Stroke icons on a 24px grid, shared by the Astro pages and the React room.
+export const icons = {
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  micOff: '<path d="M15 9.3V6a3 3 0 0 0-5.7-1.3M9 9v2a3 3 0 0 0 4.9 2.3M5 11a7 7 0 0 0 11.4 5.4M19 11a7 7 0 0 1-.4 2.3M12 18v3M3 3l18 18"/>',
+  camera: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/>',
+  cameraOff: '<path d="M10.7 6H14a2 2 0 0 1 2 2v3.3l1 1 4-2.3v7.3M16 16v.1A2 2 0 0 1 14 18H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2M3 3l18 18"/>',
+  screen: '<rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',
+  screenOff: '<path d="M7 4h12.5a2 2 0 0 1 2 2v9a2 2 0 0 1-1 1.7M16.5 17H4.5a2 2 0 0 1-2-2V6a2 2 0 0 1 1-1.7M8 21h8M12 17v4M3 3l18 18"/>',
+  leave: '<path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M15 8l4 4-4 4M19 12H9"/>',
+  chat: '<path d="M4 5h16v11H9l-5 4z"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 20a6.5 6.5 0 0 0-3-5.5"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  check: '<path d="m5 12 5 5L20 7"/>',
+  expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  shrink: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
+  pip: '<rect x="2.5" y="4" width="19" height="16" rx="2"/><rect x="12" y="12" width="7" height="5" rx="1"/>',
+  stats: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
+  lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+  arrow: '<path d="M7 17 17 7M8 7h9v9"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  send: '<path d="M4 12 20 4l-6 16-3-7z"/>',
+  smile: '<circle cx="12" cy="12" r="9"/><path d="M8.5 14a4 4 0 0 0 7 0M9 9.5v.01M15 9.5v.01"/>',
+  volume: '<path d="M4 9v6h4l5 4V5L8 9zM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>',
+  volumeOff: '<path d="M4 9v6h4l5 4V5L8 9zM17 9.5l5 5M22 9.5l-5 5"/>',
+  sparkle: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/>',
+  film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>',
+  text: '<path d="M5 6V4h14v2M12 4v16M9 20h6"/>',
+} as const;
+
+export type IconName = keyof typeof icons;

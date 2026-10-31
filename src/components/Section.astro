@@ -1,0 +1,32 @@
+---
+import Row from './Row.astro';
+
+type Props = { id: string; eyebrow: string; title: string };
+const { id, eyebrow, title } = Astro.props;
+---
+
+<Row id={id}>
+  <div class="section">
+    <div class="head">
+      <div>
+        <p class="eyebrow">{eyebrow}</p>
+        <h2 class="section-title">{title}</h2>
+      </div>
+      <slot name="aside" />
+    </div>
+    <slot />
+  </div>
+</Row>
+
+<style>
+  .section {
+    padding-block: 3rem;
+  }
+  .head {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.75rem;
+  }
+</style>

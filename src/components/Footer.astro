@@ -1,0 +1,26 @@
+---
+import Row from './Row.astro';
+---
+
+<Row as="footer" class="footer">
+  <p class="line">
+    streams relayed by <a href="https://livekit.io" class="link" target="_blank" rel="noopener">livekit</a> ·
+    made with <a href="https://astro.build" class="link" target="_blank" rel="noopener">astro</a>
+  </p>
+</Row>
+
+<style>
+  :global(.footer) {
+    margin-top: auto;
+  }
+  .line {
+    padding-block: 2rem 2.5rem;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--faint);
+  }
+  .line .link {
+    color: var(--muted);
+  }
+</style>

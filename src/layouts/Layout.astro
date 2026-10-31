@@ -1,0 +1,51 @@
+---
+import { Font } from 'astro:assets';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import '../styles/global.css';
+
+type Props = { title?: string; description?: string; wide?: boolean };
+const {
+  title = 'beam — share your screen',
+  description = 'Share your screen in sharp, smooth quality. Public rooms anyone can watch, private rooms by link.',
+  wide = false,
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta name="theme-color" content="#1b1b1a" />
+    <meta name="generator" content={Astro.generator} />
+    <Font cssVariable="--font-dm-sans" preload={[{ weight: 400, style: 'normal' }]} />
+    <Font cssVariable="--font-lora" />
+    <Font cssVariable="--font-jetbrains" />
+    <script is:inline>
+      try {
+        if (localStorage.getItem('theme') === 'light') document.documentElement.dataset.theme = 'light';
+      } catch {}
+    </script>
+  </head>
+  <body class:list={[wide && 'wide']}>
+    <div class="rails" aria-hidden="true"></div>
+    <Header />
+    <main>
+      <slot />
+    </main>
+    <Footer />
+  </body>
+</html>
+
+<style is:global>
+  /* The room uses more of the screen than the home page */
+  body.wide {
+    --col: 90rem;
+  }
+</style>

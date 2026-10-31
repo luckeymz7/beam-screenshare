@@ -1,0 +1,109 @@
+---
+import Icon from './Icon.astro';
+---
+
+<header class="header">
+  <div class="col bar">
+    <a href="/" class="home" aria-label="beam — home">beam<span class="dot" aria-hidden="true"></span></a>
+    <nav>
+      <a href="/#start" class="nav-link">new room</a>
+      <button class="icon-btn theme" type="button" aria-label="Toggle theme">
+        <Icon name="sun" class="i-sun" />
+        <Icon name="moon" class="i-moon" />
+      </button>
+    </nav>
+  </div>
+</header>
+
+<script>
+  document.querySelector('.theme')?.addEventListener('click', () => {
+    const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = next;
+    try {
+      localStorage.setItem('theme', next);
+    } catch {}
+  });
+</script>
+
+<style>
+  .header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: color-mix(in srgb, var(--bg) 80%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  .header::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--line) 20%, var(--line) 80%, transparent);
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 3.5rem;
+  }
+  .home {
+    display: inline-flex;
+    align-items: start;
+    gap: 2px;
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-size: 1.25rem;
+    color: var(--fg);
+    text-decoration: none;
+    letter-spacing: -0.02em;
+  }
+  .dot {
+    width: 5px;
+    height: 5px;
+    margin-top: 0.45rem;
+    border-radius: 50%;
+    background: var(--live);
+  }
+  nav {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    font-size: 13px;
+  }
+  .nav-link {
+    color: var(--muted);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  .nav-link:hover {
+    color: var(--fg);
+  }
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    transition: color 0.2s;
+  }
+  .icon-btn:hover {
+    color: var(--fg);
+  }
+  .theme :global(.i-moon) {
+    display: none;
+  }
+  :global([data-theme='light']) .theme :global(.i-sun) {
+    display: none;
+  }
+  :global([data-theme='light']) .theme :global(.i-moon) {
+    display: block;
+  }
+</style>

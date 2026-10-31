@@ -1,0 +1,226 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Row from '../components/Row.astro';
+import Section from '../components/Section.astro';
+import Icon from '../components/Icon.astro';
+import CreateRoom from '../components/CreateRoom';
+import RoomList from '../components/RoomList';
+import { listRooms, type RoomCard } from '../lib/rooms';
+
+let rooms: RoomCard[] = [];
+let failed = false;
+try {
+  rooms = await listRooms();
+} catch (e) {
+  failed = true;
+  console.error('Could not list rooms:', (e as Error).message);
+}
+
+const features = [
+  { icon: 'text', title: 'Sharp mode', body: 'Up to 1440p for code and text, keeping every pixel crisp.' },
+  { icon: 'film', title: 'Smooth mode', body: '1080p at 60 fps for video, games and fast scrolling.' },
+  { icon: 'lock', title: 'Private by link', body: 'Unlisted rooms with an unguessable address.' },
+] as const;
+---
+
+<Layout>
+  <Row line={false}>
+    <div class="hero">
+      <p class="eyebrow">screen sharing</p>
+      <h1 class="headline">Share your screen, <em>sharp</em> and <em>smooth</em>.</h1>
+      <p class="lede">
+        One click to go live. Viewers get the best quality their connection can take, adapted on the fly, without plugins
+        or accounts.
+      </p>
+      <ul class="features">
+        {
+          features.map((f) => (
+            <li>
+              <Icon name={f.icon} size={15} />
+              <span>
+                <strong>{f.title}</strong> {f.body}
+              </span>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </Row>
+
+  <Section id="start" eyebrow="go live" title="Start a room">
+    <CreateRoom client:load />
+  </Section>
+
+  <Section id="live" eyebrow="on air" title="Public rooms">
+    <RoomList client:load initial={rooms} failed={failed} />
+  </Section>
+</Layout>
+
+<style>
+  .hero {
+    padding-block: 4.5rem 3.5rem;
+    max-width: 40rem;
+  }
+  .headline {
+    margin-top: 0.75rem;
+    font-family: var(--font-serif);
+    font-size: clamp(2rem, 5vw, 3rem);
+    line-height: 1.1;
+    letter-spacing: -0.03em;
+  }
+  .headline em {
+    color: var(--accent);
+  }
+  .lede {
+    margin-top: 1.25rem;
+    color: var(--muted);
+    font-size: 16px;
+  }
+  .features {
+    display: grid;
+    gap: 0.6rem;
+    margin: 2rem 0 0;
+    padding: 0;
+    list-style: none;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .features li {
+    display: flex;
+    gap: 0.75rem;
+    align-items: baseline;
+  }
+  .features :global(svg) {
+    flex: none;
+    translate: 0 2px;
+    color: var(--accent);
+  }
+
+  /* create form */
+  :global(.create) {
+    display: grid;
+    gap: 1.25rem;
+    max-width: 40rem;
+  }
+  :global(.create-grid) {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 1rem;
+  }
+  :global(.create-foot) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1rem;
+  }
+  :global(.create-foot .hint) {
+    flex: 1;
+    min-width: 12rem;
+    color: var(--faint);
+    font-size: 13px;
+  }
+  @media (max-width: 560px) {
+    :global(.create-grid) {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* room list */
+  :global(.rooms) {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+    gap: 1.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  :global(.room) {
+    display: grid;
+    gap: 0.75rem;
+    text-decoration: none;
+  }
+  :global(.preview) {
+    position: relative;
+    display: block;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    background: var(--surface);
+    transition: border-color 0.2s;
+  }
+  :global(.room:hover .preview) {
+    border-color: var(--faint);
+  }
+  :global(.preview img) {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: scale 0.4s ease;
+  }
+  :global(.room:hover .preview img) {
+    scale: 1.03;
+  }
+  :global(.waiting) {
+    display: grid;
+    place-items: center;
+    height: 100%;
+    font-family: var(--font-serif);
+    font-style: italic;
+    color: var(--muted);
+  }
+  :global(.badge) {
+    position: absolute;
+    top: 0.6rem;
+    left: 0.6rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 6px;
+    background: rgb(0 0 0 / 0.55);
+    color: #fff;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    backdrop-filter: blur(6px);
+  }
+  :global(.meta) {
+    display: grid;
+    gap: 0.1rem;
+  }
+  :global(.meta .title) {
+    color: var(--fg);
+    font-weight: 600;
+    font-size: 14px;
+  }
+  :global(.meta .sub) {
+    display: flex;
+    gap: 0.75rem;
+    color: var(--faint);
+    font-size: 11px;
+  }
+  :global(.viewers) {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-left: auto;
+  }
+  :global(.empty) {
+    display: grid;
+    place-items: center;
+    gap: 0.5rem;
+    padding: 3.5rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    text-align: center;
+    color: var(--muted);
+    font-family: var(--font-serif);
+    font-style: italic;
+  }
+  :global(.empty .link) {
+    font-family: var(--font-sans);
+    font-style: normal;
+    font-size: 13px;
+  }
+</style>
