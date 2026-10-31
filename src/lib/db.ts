@@ -1,8 +1,10 @@
+import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { createClient } from '@libsql/client';
 import { DATABASE_AUTH_TOKEN, DATABASE_URL } from 'astro:env/server';
 
-// Only holds the preview images of live rooms; LiveKit is the source of truth for the rooms.
+// Holds the preview images of live rooms and recent room creations (for the rate limit);
+// LiveKit is the source of truth for the rooms themselves.
 if (DATABASE_URL.startsWith('file:')) {
   if (process.env.VERCEL) throw new Error('DATABASE_URL must point to a Turso database on Vercel');
   const dir = DATABASE_URL.slice(5).replace(/[^/\\]+$/, '');
@@ -13,9 +15,45 @@ const client = createClient({ url: DATABASE_URL, authToken: DATABASE_AUTH_TOKEN 
 
 let ready: Promise<unknown> | undefined;
 const db = () =>
-  (ready ??= client.execute(
-    'create table if not exists thumbs (room text primary key, mime text not null, data blob not null, updated_at integer not null)',
+  (ready ??= client.batch(
+    [
+      'create table if not exists thumbs (room text primary key, mime text not null, data blob not null, updated_at integer not null)',
+      'create table if not exists creations (who text not null, at integer not null)',
+    ],
+    'write',
   )).then(() => client);
+
+const CREATE_LIMIT = 5;
+const CREATE_WINDOW = 10 * 60_000;
+
+/**
+ * At most a few new rooms per address every ten minutes, so nobody can fill the media server
+ * with empty rooms. Only a hash of the address is kept, and only for the window. If the
+ * database is down, creating a room still works.
+ */
+export async function allowCreate(address: string) {
+  try {
+    const c = await db();
+    const who = createHash('sha256').update(address).digest('hex').slice(0, 32);
+    const now = Date.now();
+    const { rows } = await c.execute({
+      sql: 'select count(*) as n from creations where who = ? and at > ?',
+      args: [who, now - CREATE_WINDOW],
+    });
+    if (Number(rows[0]?.n ?? 0) >= CREATE_LIMIT) return false;
+    await c.batch(
+      [
+        { sql: 'insert into creations (who, at) values (?, ?)', args: [who, now] },
+        { sql: 'delete from creations where at < ?', args: [now - CREATE_WINDOW] },
+      ],
+      'write',
+    );
+    return true;
+  } catch (e) {
+    console.error('Rate limit:', (e as Error).message);
+    return true;
+  }
+}
 
 export async function saveThumb(room: string, mime: string, data: ArrayBuffer) {
   const c = await db();

@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { getRoom, isHost } from '../../../../lib/livekit';
 import { getThumb, saveThumb } from '../../../../lib/db';
+import { unreachable } from '../../../../lib/http';
 
 const TYPES = new Set(['image/jpeg', 'image/webp']);
 const MAX = 300 * 1024;
@@ -16,9 +17,16 @@ export const GET: APIRoute = async ({ params }) => {
 
 /** The host's browser uploads a small frame of the shared screen every few seconds. */
 export const PUT: APIRoute = async ({ params, request }) => {
-  const room = await getRoom(params.id ?? '');
+  let room;
+  try {
+    room = await getRoom(params.id ?? '');
+  } catch (e) {
+    return unreachable(e);
+  }
   if (!room) return new Response(null, { status: 404 });
   if (!isHost(room.meta, request.headers.get('x-host-key'))) return new Response(null, { status: 403 });
+  // Private rooms are never listed, so they never need a preview
+  if (room.info.visibility !== 'public') return new Response(null, { status: 403 });
   const mime = request.headers.get('content-type') ?? '';
   if (!TYPES.has(mime)) return new Response(null, { status: 415 });
   const data = await request.arrayBuffer();
