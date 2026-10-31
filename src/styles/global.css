@@ -356,24 +356,42 @@ strong {
 }
 
 .live-dot {
+  position: relative;
   display: inline-block;
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: var(--live);
-  box-shadow: 0 0 0 0 rgb(229 120 109 / 0.6);
-  animation: pulse 2s infinite;
+}
+/* The pulse only scales and fades (done by the GPU); animating a shadow repaints every frame */
+.live-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--live);
+  animation: pulse 2s ease-out infinite;
 }
 @keyframes pulse {
-  70% {
-    box-shadow: 0 0 0 6px rgb(229 120 109 / 0);
+  0% {
+    opacity: 0.6;
+    scale: 1;
   }
+  70%,
   100% {
-    box-shadow: 0 0 0 0 rgb(229 120 109 / 0);
+    opacity: 0;
+    scale: 2.7;
   }
 }
 
 .error {
   color: var(--danger);
   font-size: 13px;
+}
+
+/* Under 16px, iPhone zooms the page when a field is focused */
+@media (pointer: coarse) {
+  .input {
+    font-size: 16px;
+  }
 }

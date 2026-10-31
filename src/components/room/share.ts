@@ -1,10 +1,35 @@
 import { AudioPresets, type AudioCaptureOptions, type ScreenShareCaptureOptions, type TrackPublishOptions } from 'livekit-client';
-import type { IconName } from '../../lib/icons';
-
-export type ShareMode = 'sharp' | 'smooth';
 
 // Safari captures at low resolution as soon as any resolution is requested (WebKit bug 263015)
 const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
+/** Phones and tablets (iOS, Android) can't capture their screen from a browser. */
+export const canShareScreen = () => typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia;
+
+/** What the host can pick, and the bitrate each resolution gets at 30 fps. */
+export const resolutions = {
+  '720p': { width: 1280, height: 720, mbps: 2.5 },
+  '1080p': { width: 1920, height: 1080, mbps: 4.5 },
+  '1440p': { width: 2560, height: 1440, mbps: 6 },
+  '4K': { width: 3840, height: 2160, mbps: 12 },
+} as const;
+export type Resolution = keyof typeof resolutions;
+export const frameRates = [15, 30, 60] as const;
+export type FrameRate = (typeof frameRates)[number];
+export type Quality = { resolution: Resolution; fps: FrameRate };
+
+export const defaultQuality: Quality = { resolution: '1080p', fps: 30 };
+
+export function toQuality(value: unknown): Quality {
+  const q = value as Partial<Quality> | null;
+  return {
+    resolution: q?.resolution && q.resolution in resolutions ? q.resolution : defaultQuality.resolution,
+    fps: frameRates.includes(q?.fps as FrameRate) ? (q!.fps as FrameRate) : defaultQuality.fps,
+  };
+}
+
+// Twice the frames don't need twice the bits: consecutive frames are mostly the same
+const fpsFactor: Record<FrameRate, number> = { 15: 0.65, 30: 1, 60: 1.6 };
 
 const common: ScreenShareCaptureOptions = {
   surfaceSwitching: 'include',
@@ -17,12 +42,15 @@ const common: ScreenShareCaptureOptions = {
  * is 48 kbps mono. Capture it untouched in stereo and send it at 128 kbps, without DTX (which
  * cuts quiet passages) or RED (which spends the bitrate on redundancy).
  */
-const hifiCapture: AudioCaptureOptions = {
+const hifiCapture: AudioCaptureOptions & { restrictOwnAudio?: boolean } = {
   channelCount: 2,
   echoCancellation: false,
   noiseSuppression: false,
   autoGainControl: false,
   voiceIsolation: false,
+  // Sharing the whole screen with its sound would also capture beam playing the guests' voices,
+  // sending them back as an echo. Chrome can leave this page's own audio out; others ignore it.
+  restrictOwnAudio: true,
 };
 const hifiPublish: TrackPublishOptions = {
   audioPreset: AudioPresets.musicHighQualityStereo,
@@ -44,45 +72,26 @@ const hifiPublish: TrackPublishOptions = {
  */
 const vp9: TrackPublishOptions = { videoCodec: 'vp9', backupCodec: true, simulcast: true, scalabilityMode: 'L1T3' };
 
-// setScreenShareEnabled publishes the video and its sound with the same options
-const base: TrackPublishOptions = { ...vp9, ...hifiPublish };
-export const shareModes: Record<
-  ShareMode,
-  { label: string; hint: string; icon: IconName; capture: (audio: boolean) => ScreenShareCaptureOptions; publish: TrackPublishOptions }
-> = {
-  sharp: {
-    label: 'Sharp',
-    hint: 'Text and code · up to 1440p30',
-    icon: 'text',
-    capture: (audio) => ({
-      ...common,
-      audio: audio ? hifiCapture : false,
-      systemAudio: audio ? 'include' : 'exclude',
-      contentHint: 'detail',
-      ...(isSafari ? {} : { resolution: { width: 2560, height: 1440, frameRate: 30 } }),
-    }),
-    publish: {
-      ...base,
-      screenShareEncoding: { maxBitrate: 6_000_000, maxFramerate: 30 },
-      // Under pressure, drop frames before dropping resolution so text stays readable
-      degradationPreference: 'maintain-resolution',
-    },
-  },
-  smooth: {
-    label: 'Smooth',
-    hint: 'Video and games · 1080p60',
-    icon: 'film',
-    capture: (audio) => ({
-      ...common,
-      audio: audio ? hifiCapture : false,
-      systemAudio: audio ? 'include' : 'exclude',
-      contentHint: 'motion',
-      ...(isSafari ? {} : { resolution: { width: 1920, height: 1080, frameRate: 60 } }),
-    }),
-    publish: {
-      ...base,
-      screenShareEncoding: { maxBitrate: 8_000_000, maxFramerate: 60 },
-      degradationPreference: 'maintain-framerate',
-    },
-  },
-};
+/**
+ * Capture and publish options for a quality. 60 fps is treated as motion (video, games: keep
+ * the frame rate under pressure), anything slower as detail (text, code: keep the resolution).
+ */
+export function shareOptions(q: Quality, audio: boolean) {
+  const r = resolutions[q.resolution];
+  const motion = q.fps >= 60;
+  const capture: ScreenShareCaptureOptions = {
+    ...common,
+    audio: audio ? hifiCapture : false,
+    systemAudio: audio ? 'include' : 'exclude',
+    contentHint: motion ? 'motion' : 'detail',
+    ...(isSafari ? {} : { resolution: { width: r.width, height: r.height, frameRate: q.fps } }),
+  };
+  // setScreenShareEnabled publishes the video and its sound with the same options
+  const publish: TrackPublishOptions = {
+    ...vp9,
+    ...hifiPublish,
+    screenShareEncoding: { maxBitrate: Math.round(r.mbps * fpsFactor[q.fps] * 1e6), maxFramerate: q.fps },
+    degradationPreference: motion ? 'maintain-framerate' : 'maintain-resolution',
+  };
+  return { capture, publish };
+}

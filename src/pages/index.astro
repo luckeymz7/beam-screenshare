@@ -6,7 +6,10 @@ import Icon from '../components/Icon.astro';
 import CreateRoom from '../components/CreateRoom';
 import RoomList from '../components/RoomList';
 import { listRooms, type RoomCard } from '../lib/rooms';
+import { translator } from '../lib/i18n';
 
+const { lang } = Astro.locals;
+const t = translator(lang);
 let rooms: RoomCard[] = [];
 let failed = false;
 try {
@@ -17,21 +20,18 @@ try {
 }
 
 const features = [
-  { icon: 'text', title: 'Sharp mode', body: 'Up to 1440p for code and text, keeping every pixel crisp.' },
-  { icon: 'film', title: 'Smooth mode', body: '1080p at 60 fps for video, games and fast scrolling.' },
-  { icon: 'lock', title: 'Private by link', body: 'Unlisted rooms with an unguessable address.' },
+  { icon: 'screen', title: t('home.f1.title'), body: t('home.f1.body') },
+  { icon: 'volume', title: t('home.f2.title'), body: t('home.f2.body') },
+  { icon: 'lock', title: t('home.f3.title'), body: t('home.f3.body') },
 ] as const;
 ---
 
 <Layout>
   <Row line={false}>
     <div class="hero">
-      <p class="eyebrow">screen sharing</p>
-      <h1 class="headline">Share your screen, <em>sharp</em> and <em>smooth</em>.</h1>
-      <p class="lede">
-        One click to go live. Viewers get the best quality their connection can take, adapted on the fly, without plugins
-        or accounts.
-      </p>
+      <p class="eyebrow">{t('home.eyebrow')}</p>
+      <h1 class="headline" set:html={t('home.headline')} />
+      <p class="lede">{t('home.lede')}</p>
       <ul class="features">
         {
           features.map((f) => (
@@ -47,12 +47,12 @@ const features = [
     </div>
   </Row>
 
-  <Section id="start" eyebrow="go live" title="Start a room">
-    <CreateRoom client:load />
+  <Section id="start" eyebrow={t('home.startEyebrow')} title={t('home.startTitle')}>
+    <CreateRoom client:load lang={lang} />
   </Section>
 
-  <Section id="live" eyebrow="on air" title="Public rooms">
-    <RoomList client:load initial={rooms} failed={failed} />
+  <Section id="live" eyebrow={t('home.liveEyebrow')} title={t('home.liveTitle')}>
+    <RoomList client:load lang={lang} initial={rooms} failed={failed} />
   </Section>
 </Layout>
 
@@ -183,7 +183,6 @@ const features = [
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    backdrop-filter: blur(6px);
   }
   :global(.meta) {
     display: grid;

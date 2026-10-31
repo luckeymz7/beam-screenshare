@@ -2,14 +2,29 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { LiveKitRoom, RoomAudioRenderer } from '@livekit/components-react';
 import { DisconnectReason, VideoPresets, type RoomOptions } from 'livekit-client';
 import { Icon } from '../Icon';
-import { hostKeyFor, saveName, savedName } from '../../lib/client';
+import { TContext, useT } from '../i18n';
+import { hostKeyFor, saveHostKey, saveName, savedName } from '../../lib/client';
+import { errorText, translator, type Lang } from '../../lib/i18n';
 import type { Role, RoomInfo } from '../../lib/livekit';
 import { RoomView } from './RoomView';
 
 type Session = { token: string; serverUrl: string; role: Role; room: RoomInfo };
 type Phase = 'prejoin' | 'joined' | 'left' | 'removed' | 'ended';
 
-export default function RoomApp({ room }: { room: RoomInfo }) {
+// Touch screens open the keyboard on autofocus, covering half the page
+const touch = () => matchMedia('(pointer: coarse)').matches;
+
+export default function RoomApp({ room, lang }: { room: RoomInfo; lang: Lang }) {
+  const t = useMemo(() => translator(lang), [lang]);
+  return (
+    <TContext.Provider value={t}>
+      <Room room={room} />
+    </TContext.Provider>
+  );
+}
+
+function Room({ room }: { room: RoomInfo }) {
+  const t = useT();
   const [phase, setPhase] = useState<Phase>('prejoin');
   const [session, setSession] = useState<Session | null>(null);
   const [name, setName] = useState('');
@@ -21,7 +36,13 @@ export default function RoomApp({ room }: { room: RoomInfo }) {
 
   useEffect(() => {
     setName(savedName());
-    setHostKey(hostKeyFor(room.id));
+    // A host link (#host=<key>) moves the host role to this device
+    const fromLink = new URLSearchParams(location.hash.slice(1)).get('host');
+    if (fromLink) {
+      saveHostKey(room.id, fromLink);
+      history.replaceState(null, '', location.pathname + location.search);
+    }
+    setHostKey(fromLink ?? hostKeyFor(room.id));
   }, [room.id]);
 
   const options = useMemo<RoomOptions>(
@@ -31,8 +52,10 @@ export default function RoomApp({ room }: { room: RoomInfo }) {
       // camera tiles low), and the server still steps down when a viewer's connection can't keep up.
       adaptiveStream: false,
       dynacast: true,
-      videoCaptureDefaults: { resolution: VideoPresets.h540.resolution },
-      publishDefaults: { videoCodec: 'vp9', backupCodec: true },
+      // Cameras only fill small tiles. H.264 is encoded and decoded in hardware almost everywhere
+      // (VP9 would run in software on an iPhone and heat it up); the screen share picks VP9 itself.
+      videoCaptureDefaults: { resolution: VideoPresets.h360.resolution },
+      publishDefaults: { videoCodec: 'h264', backupCodec: true },
     }),
     [],
   );
@@ -49,12 +72,12 @@ export default function RoomApp({ room }: { room: RoomInfo }) {
       });
       if (res.status === 404) return setPhase('ended');
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Could not join.');
+      if (!res.ok) throw new Error(errorText(t, data, 'gate.joinFailed'));
       saveName(name.trim());
       setSession(data);
       setPhase('joined');
     } catch (err) {
-      setError((err as Error).message === 'Failed to fetch' ? 'Could not reach the server.' : (err as Error).message);
+      setError(err instanceof TypeError ? t('err.network') : (err as Error).message);
     } finally {
       setBusy(false);
     }
@@ -89,9 +112,9 @@ export default function RoomApp({ room }: { room: RoomInfo }) {
 
   if (phase === 'left' || phase === 'removed' || phase === 'ended') {
     const copy = {
-      left: { title: 'You left the room', body: 'The stream keeps going without you.' },
-      removed: { title: 'You were removed', body: 'The host removed you from this room.' },
-      ended: { title: 'This room has ended', body: 'The host ended it, or everyone left.' },
+      left: { title: t('gate.left'), body: t('gate.leftBody') },
+      removed: { title: t('gate.removed'), body: t('gate.removedBody') },
+      ended: { title: t('page.ended'), body: t('gate.endedBody') },
     }[phase];
     return (
       <div className="gate">
@@ -101,11 +124,11 @@ export default function RoomApp({ room }: { room: RoomInfo }) {
         <div className="gate-actions">
           {phase === 'left' && (
             <button className="btn primary" onClick={() => join()} disabled={busy}>
-              Rejoin
+              {t('gate.rejoin')}
             </button>
           )}
           <a className="btn" href="/">
-            Back home
+            {t('page.backHome')}
           </a>
         </div>
       </div>
@@ -115,39 +138,36 @@ export default function RoomApp({ room }: { room: RoomInfo }) {
   return (
     <form className="gate" onSubmit={join}>
       <p className="eyebrow">
-        {room.visibility === 'public' ? <Icon name="globe" size={12} /> : <Icon name="lock" size={12} />}{' '}
-        {room.visibility} room · hosted by {room.host}
+        <Icon name={room.visibility === 'public' ? 'globe' : 'lock'} size={12} />{' '}
+        {room.visibility === 'public' ? t('gate.public') : t('gate.private')} · {t('gate.hostedBy', { host: room.host })}
       </p>
       <h1 className="gate-title">{room.title}</h1>
-      {hostKey ? (
-        <p className="muted">You're the host. Join, then press the screen button to go live.</p>
-      ) : (
-        <p className="muted">Pick a name and join. Your mic and camera stay off unless you turn them on.</p>
-      )}
+      <p className="muted">{hostKey ? t('gate.hostNote') : t('gate.guestNote')}</p>
 
       <label className="field">
-        <span className="label">your name</span>
+        <span className="label">{t('create.name')}</span>
         <input
           className="input"
           value={name}
           onChange={(e) => setName(e.target.value)}
           maxLength={32}
+          autoComplete="nickname"
           required
-          autoFocus
+          autoFocus={!touch()}
         />
       </label>
 
       <div className="gate-toggles">
         <button type="button" className="toggle" aria-pressed={mic} onClick={() => setMic(!mic)}>
-          <Icon name={mic ? 'mic' : 'micOff'} size={16} /> {mic ? 'Mic on' : 'Mic off'}
+          <Icon name={mic ? 'mic' : 'micOff'} size={16} /> {mic ? t('gate.micOn') : t('gate.micOff')}
         </button>
         <button type="button" className="toggle" aria-pressed={cam} onClick={() => setCam(!cam)}>
-          <Icon name={cam ? 'camera' : 'cameraOff'} size={16} /> {cam ? 'Camera on' : 'Camera off'}
+          <Icon name={cam ? 'camera' : 'cameraOff'} size={16} /> {cam ? t('gate.camOn') : t('gate.camOff')}
         </button>
       </div>
 
       <button className="btn primary join" disabled={busy || !name.trim()}>
-        {busy ? 'Joining…' : 'Join room'}
+        {busy ? t('gate.joining') : t('gate.join')}
       </button>
       {error && <p className="error">{error}</p>}
     </form>

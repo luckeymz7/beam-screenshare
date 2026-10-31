@@ -25,9 +25,10 @@ export const icons = {
   smile: '<circle cx="12" cy="12" r="9"/><path d="M8.5 14a4 4 0 0 0 7 0M9 9.5v.01M15 9.5v.01"/>',
   volume: '<path d="M4 9v6h4l5 4V5L8 9zM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>',
   volumeOff: '<path d="M4 9v6h4l5 4V5L8 9zM17 9.5l5 5M22 9.5l-5 5"/>',
-  sparkle: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/>',
-  film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>',
-  text: '<path d="M5 6V4h14v2M12 4v16M9 20h6"/>',
+  chevron: '<path d="m6 9 6 6 6-6"/>',
+  wave: '<path d="M3 12h1M7 9v6M11 5v14M15 8v8M19 11v2"/>',
+  waveOff: '<path d="M3 12h1M7 9v6M11 5v14M15 8v8M19 11v2M3 3l18 18"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M15 8l2 2"/>',
 } as const;
 
 export type IconName = keyof typeof icons;

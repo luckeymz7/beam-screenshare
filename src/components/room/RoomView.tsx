@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import {
   VideoTrack,
   useChat,
@@ -9,12 +9,24 @@ import {
   useAudioPlayback,
   useTracks,
 } from '@livekit/components-react';
-import { RemoteAudioTrack, RemoteTrackPublication, Track, VideoQuality, type LocalVideoTrack } from 'livekit-client';
+import { RemoteAudioTrack, Track, type LocalAudioTrack, type LocalVideoTrack } from 'livekit-client';
 import { Icon } from '../Icon';
-import { since } from '../../lib/client';
+import { useT } from '../i18n';
+import { saveNoiseFilter, saveQuality, savedNoiseFilter, savedQuality, since } from '../../lib/client';
 import type { Role, RoomInfo } from '../../lib/livekit';
-import { shareModes, type ShareMode } from './share';
+import {
+  canShareScreen,
+  frameRates,
+  resolutions,
+  shareOptions,
+  toQuality,
+  type FrameRate,
+  type Quality,
+  type Resolution,
+} from './share';
 import { useStreamStats } from './useStreamStats';
+import { useScreenLayer } from './useScreenLayer';
+import { useNoiseFilter } from './noiseFilter';
 import { useThumbnails } from './useThumbnails';
 import { Tiles } from './Tiles';
 import { Chat } from './Chat';
@@ -42,21 +54,20 @@ const exitFullscreen = () => (doc().exitFullscreen ? void doc().exitFullscreen()
 const elementFullscreen = () => !!(doc().fullscreenEnabled || doc().webkitFullscreenEnabled);
 
 export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; hostKey: string | null }) {
+  const t = useT();
   const room = useRoomContext();
   const isHost = role === 'host';
   // Dev only: lets automated tests publish a fake screen without the browser's picker
   useEffect(() => {
     if (import.meta.env.DEV) (window as unknown as { beamRoom: typeof room }).beamRoom = room;
   }, [room]);
-  const participants = useParticipants();
+  // Only the count is shown: re-render when someone joins or leaves, not each time someone speaks
+  const participants = useParticipants({ updateOnlyOn: [] });
   const [screen] = useTracks([Track.Source.ScreenShare]);
   const local = useLocalParticipant();
 
-  // Always receive the shared screen at its best layer
-  useEffect(() => {
-    const pub = screen?.publication;
-    if (pub instanceof RemoteTrackPublication) pub.setVideoQuality(VideoQuality.HIGH);
-  }, [screen?.publication]);
+  const stageRef = useRef<HTMLDivElement>(null);
+  useScreenLayer(screen?.publication, stageRef);
 
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef(0);
@@ -86,30 +97,32 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
   const { send } = useDataChannel('reaction', (msg) => addReaction(decoder.decode(msg.payload), msg.from?.name ?? ''));
   const react = (emoji: string) => {
     send(encoder.encode(emoji), { reliable: true, topic: 'reaction' }).catch(() => {});
-    addReaction(emoji, 'you');
+    addReaction(emoji, t('tile.you'));
   };
 
   // ---- screen share (host)
-  const [mode, setMode] = useState<ShareMode>('sharp');
+  const canShare = useMemo(canShareScreen, []);
+  const [quality, setQualityState] = useState<Quality>(() => toQuality(savedQuality()));
+  const setQuality = (q: Quality) => {
+    setQualityState(q);
+    saveQuality(q);
+  };
   const [shareAudio, setShareAudio] = useState(true);
   async function toggleShare() {
     try {
       if (local.isScreenShareEnabled) {
         await local.localParticipant.setScreenShareEnabled(false);
       } else {
-        const m = shareModes[mode];
-        await local.localParticipant.setScreenShareEnabled(true, m.capture(shareAudio), m.publish);
+        const { capture, publish } = shareOptions(quality, shareAudio);
+        await local.localParticipant.setScreenShareEnabled(true, capture, publish);
         // The browser only hands over sound for a tab or the entire screen, and only with its checkbox on
         if (shareAudio && !local.localParticipant.getTrackPublication(Track.Source.ScreenShareAudio)) {
-          notify(
-            'Sharing without sound. To include it, share a tab with "Share tab audio" on, or your entire screen with "Share system audio" on. A single window can’t share sound.',
-            10_000,
-          );
+          notify(t('room.noSound'), 10_000);
         }
       }
     } catch (e) {
       // Closing the browser's picker is not an error worth showing
-      if ((e as Error).name !== 'NotAllowedError') notify(`Could not share: ${(e as Error).message}`);
+      if ((e as Error).name !== 'NotAllowedError') notify(t('room.shareFailed', { error: (e as Error).message }));
     }
   }
   const localScreen = local.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.videoTrack as
@@ -117,15 +130,35 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
     | undefined;
   useThumbnails(info.id, hostKey, localScreen, isHost && info.visibility === 'public' && local.isScreenShareEnabled);
 
+  // Phones can't share their screen: hand the host role to a computer instead
+  const copyHostLink = async () => {
+    await navigator.clipboard.writeText(`${location.origin}/r/${info.id}#host=${hostKey}`).catch(() => {});
+    notify(t('room.hostLinkCopied'));
+  };
+
+  // ---- microphone noise suppression
+  const [noiseFilter, setNoiseFilter] = useState(savedNoiseFilter);
+  const onNoiseError = useCallback(() => {
+    setNoiseFilter(false);
+    notify(t('room.noiseFailed'));
+  }, [notify, t]);
+  useNoiseFilter(local.microphoneTrack?.track as LocalAudioTrack | undefined, noiseFilter, onNoiseError);
+  const toggleNoiseFilter = () => {
+    setNoiseFilter(!noiseFilter);
+    saveNoiseFilter(!noiseFilter);
+    notify(noiseFilter ? t('room.noiseOff') : t('room.noiseOn'), 2000);
+  };
+
   const toggleMic = () =>
     local.localParticipant
       .setMicrophoneEnabled(!local.isMicrophoneEnabled)
-      .catch((e: Error) => notify(`Microphone: ${e.message}`));
+      .catch((e: Error) => notify(t('room.micError', { error: e.message })));
   const toggleCam = () =>
-    local.localParticipant.setCameraEnabled(!local.isCameraEnabled).catch((e: Error) => notify(`Camera: ${e.message}`));
+    local.localParticipant
+      .setCameraEnabled(!local.isCameraEnabled)
+      .catch((e: Error) => notify(t('room.camError', { error: e.message })));
 
   // ---- stage: fullscreen, picture in picture, stats
-  const stageRef = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
   useEffect(() => {
     const onChange = () => setFullscreen(fullscreenElement() === stageRef.current);
@@ -149,7 +182,7 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
   const videoFullscreen = () => {
     const video = stageVideo();
     if (video?.webkitEnterFullscreen) video.webkitEnterFullscreen();
-    else notify('Full screen is not available in this browser.');
+    else notify(t('room.noFullscreen'));
   };
   const pip = () => {
     const video = stageVideo();
@@ -160,8 +193,12 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
       );
     }
     (document.pictureInPictureElement ? document.exitPictureInPicture() : video.requestPictureInPicture()).catch(() =>
-      notify('Picture in picture is not available in this browser.'),
+      notify(t('room.noPip')),
     );
+  };
+  // Double-click the picture for full screen, but not a quick double tap on a control
+  const onStageDoubleClick = (e: MouseEvent) => {
+    if (!(e.target as HTMLElement).closest('.dock, button, select, a')) toggleFullscreen();
   };
   const [showStats, setShowStats] = useState(false);
   const [selfPreview, setSelfPreview] = useState(false);
@@ -171,20 +208,20 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
   }, [local.isScreenShareEnabled]);
   const stats = useStreamStats(screen?.publication?.track, showStats);
 
-  // Hide the controls while watching full screen and the mouse is still
+  // Hide the controls while watching full screen and the pointer is still; a tap brings them back
   const [idle, setIdle] = useState(false);
   const idleTimer = useRef(0);
   const wake = () => {
     setIdle(false);
     clearTimeout(idleTimer.current);
-    idleTimer.current = window.setTimeout(() => setIdle(true), 2500);
+    idleTimer.current = window.setTimeout(() => setIdle(true), 3000);
   };
 
   // ---- keyboard: M mic, V camera, F full screen
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
-      if (e.metaKey || e.ctrlKey || e.altKey || el.closest('input, textarea, [contenteditable]')) return;
+      if (e.metaKey || e.ctrlKey || e.altKey || el.closest('input, textarea, select, [contenteditable]')) return;
       if (e.key === 'm') toggleMic();
       else if (e.key === 'v') toggleCam();
       else if (e.key === 'f') toggleFullscreen();
@@ -202,7 +239,7 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
 
   const [copied, setCopied] = useState(false);
   const invite = async () => {
-    await navigator.clipboard.writeText(location.href).catch(() => {});
+    await navigator.clipboard.writeText(location.origin + location.pathname).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   };
@@ -216,7 +253,7 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
     });
   const endRoom = async () => {
     if (!confirmEnd) return setConfirmEnd(true);
-    await manage({ action: 'end' }).catch(() => notify('Could not end the room.'));
+    await manage({ action: 'end' }).catch(() => notify(t('room.endFailed')));
   };
 
   const sharer = screen?.participant;
@@ -227,8 +264,12 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
   useEffect(() => {
     if (screenAudioTrack instanceof RemoteAudioTrack) screenAudioTrack.setVolume(streamMuted ? 0 : 1);
   }, [screenAudioTrack, streamMuted]);
-  // Safari (and iPhone) may refuse to start audio until the page is tapped again
+  // Safari (and iPhone) may refuse to start audio until the page is tapped again; only ask when
+  // there is something to hear
   const { canPlayAudio, startAudio } = useAudioPlayback(room);
+  const remoteAudio = useTracks([Track.Source.Microphone, Track.Source.ScreenShareAudio]).some(
+    (a) => !a.participant.isLocal,
+  );
   const showVideo = !!screen && (!screen.participant.isLocal || selfPreview);
 
   return (
@@ -237,20 +278,21 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
         <div className="room-title">
           <h1>{info.title}</h1>
           <span className="room-sub mono">
-            <span className="live-dot" /> live {since(info.createdAt, now)}
+            <span className="live-dot" /> {t('room.live', { time: since(t, info.createdAt, now) })}
             <span className="sep">·</span>
-            <Icon name={info.visibility === 'public' ? 'globe' : 'lock'} size={12} /> {info.visibility}
+            <Icon name={info.visibility === 'public' ? 'globe' : 'lock'} size={12} />{' '}
+            {info.visibility === 'public' ? t('room.public') : t('room.private')}
             <span className="sep">·</span>
             <Icon name="users" size={12} /> {participants.length}
           </span>
         </div>
         <div className="room-actions">
           <button className="btn" onClick={invite}>
-            <Icon name={copied ? 'check' : 'link'} size={14} /> {copied ? 'Copied' : 'Invite'}
+            <Icon name={copied ? 'check' : 'link'} size={14} /> {copied ? t('room.copied') : t('room.invite')}
           </button>
           {isHost && (
             <button className={`btn ${confirmEnd ? 'danger' : ''}`} onClick={endRoom} onBlur={() => setConfirmEnd(false)}>
-              {confirmEnd ? 'End for everyone?' : 'End room'}
+              {confirmEnd ? t('room.endConfirm') : t('room.end')}
             </button>
           )}
         </div>
@@ -261,200 +303,256 @@ export function RoomView({ info, role, hostKey }: { info: RoomInfo; role: Role; 
           <div
             ref={stageRef}
             className={`stage ${fullscreen && idle ? 'idle' : ''}`}
-            onMouseMove={wake}
-            onDoubleClick={toggleFullscreen}
+            onPointerMove={wake}
+            onPointerDown={wake}
+            onDoubleClick={onStageDoubleClick}
           >
-            {showVideo ? (
-              <VideoTrack trackRef={screen} className="stage-video" />
-            ) : screen ? (
-              // Showing your own screen while sharing it makes an endless mirror and costs CPU
-              <div className="stage-empty hatch">
-                <p className="stage-msg">You're sharing your screen.</p>
-                <div className="stage-buttons">
-                  <button className="btn" onClick={() => setSelfPreview(true)}>
-                    Show preview
-                  </button>
-                  <button className="btn" onClick={toggleShare}>
-                    <Icon name="screenOff" size={15} /> Stop sharing
-                  </button>
-                </div>
-                <p className="stage-hint mono">Everyone in the room sees it.</p>
-              </div>
-            ) : (
-              <div className="stage-empty hatch">
-                {isHost ? (
-                  <>
-                    <p className="stage-msg">Ready when you are.</p>
-                    <button className="btn primary" onClick={toggleShare}>
-                      <Icon name="screen" size={15} /> Share your screen
+            <div className="screen">
+              {showVideo ? (
+                <VideoTrack trackRef={screen} className="stage-video" />
+              ) : screen ? (
+                // Showing your own screen while sharing it makes an endless mirror and costs CPU
+                <div className="stage-empty hatch">
+                  <p className="stage-msg">{t('room.sharing')}</p>
+                  <div className="stage-buttons">
+                    <button className="btn" onClick={() => setSelfPreview(true)}>
+                      {t('room.showPreview')}
                     </button>
-                    <p className="stage-hint mono">{shareModes[mode].hint}</p>
-                  </>
-                ) : (
-                  <p className="stage-msg">Waiting for {info.host} to share their screen…</p>
-                )}
-              </div>
-            )}
-
-            {sharer && (
-              <span className="stage-tag mono">
-                {sharer.isLocal ? 'you are sharing' : `${sharer.name || 'host'}'s screen`}
-                <span className="tag-sound">{hasSound ? '· with sound' : '· no sound'}</span>
-                {sharer.isLocal && selfPreview && (
-                  <button className="tag-btn" onClick={() => setSelfPreview(false)}>
-                    hide preview
-                  </button>
-                )}
-              </span>
-            )}
-
-            {showStats && screen && (
-              <div className="stats mono">
-                {stats ? (
-                  <>
-                    <span>
-                      {stats.width && stats.height ? `${stats.width}×${stats.height}` : '—'} · {stats.fps ?? '—'} fps
-                    </span>
-                    <span>
-                      {stats.bitrate ? `${(stats.bitrate / 1e6).toFixed(1)} Mbps` : '—'}
-                      {stats.codec ? ` · ${stats.codec}` : ''}
-                    </span>
-                    {stats.limited && <span className="warn">limited by {stats.limited}</span>}
-                    {!!stats.lost && <span>{stats.lost} packets lost</span>}
-                  </>
-                ) : (
-                  <span>measuring…</span>
-                )}
-              </div>
-            )}
-
-            {!canPlayAudio && (
-              <button className="sound-gate btn primary" onClick={() => startAudio()}>
-                <Icon name="volume" size={15} /> Tap to turn on sound
-              </button>
-            )}
-
-            <div className="reactions-layer" aria-hidden="true">
-              {floating.map((r) => (
-                <span key={r.id} className="float" style={{ left: `${r.x}%` }}>
-                  {r.emoji}
-                  {r.from && <small>{r.from}</small>}
-                </span>
-              ))}
-            </div>
-
-            <div className="controls">
-              <button
-                className={`round ${local.isMicrophoneEnabled ? '' : 'off'}`}
-                onClick={toggleMic}
-                title="Microphone (M)"
-                aria-label={local.isMicrophoneEnabled ? 'Mute' : 'Unmute'}
-              >
-                <Icon name={local.isMicrophoneEnabled ? 'mic' : 'micOff'} size={19} />
-              </button>
-              <button
-                className={`round ${local.isCameraEnabled ? '' : 'off'}`}
-                onClick={toggleCam}
-                title="Camera (V)"
-                aria-label={local.isCameraEnabled ? 'Turn camera off' : 'Turn camera on'}
-              >
-                <Icon name={local.isCameraEnabled ? 'camera' : 'cameraOff'} size={19} />
-              </button>
-              {isHost && (
-                <button
-                  className={`round share ${local.isScreenShareEnabled ? 'active' : ''}`}
-                  onClick={toggleShare}
-                  title={local.isScreenShareEnabled ? 'Stop sharing' : 'Share your screen'}
-                  aria-label={local.isScreenShareEnabled ? 'Stop sharing' : 'Share your screen'}
-                >
-                  <Icon name={local.isScreenShareEnabled ? 'screenOff' : 'screen'} size={19} />
-                </button>
-              )}
-              <button className="round leave" onClick={() => room.disconnect()} title="Leave" aria-label="Leave">
-                <Icon name="leave" size={19} />
-              </button>
-            </div>
-
-            <div className="corner">
-              <details className="react-menu">
-                <summary className="icon" title="React" aria-label="React">
-                  <Icon name="smile" size={16} />
-                </summary>
-                <div className="react-pop">
-                  {REACTIONS.map((e) => (
-                    <button key={e} onClick={() => react(e)} aria-label={`React ${e}`}>
-                      {e}
+                    <button className="btn" onClick={toggleShare}>
+                      <Icon name="screenOff" size={15} /> {t('room.stopSharing')}
                     </button>
-                  ))}
+                  </div>
+                  <p className="stage-hint mono">{t('room.everyoneSees')}</p>
                 </div>
-              </details>
-              <button
-                className={`icon ${chatOpen ? 'on' : ''}`}
-                onClick={() => setChatOpen(!chatOpen)}
-                title="Chat"
-                aria-label="Chat"
-              >
-                <Icon name="chat" size={16} />
-                {unread > 0 && <span className="unread">{unread > 9 ? '9+' : unread}</span>}
-              </button>
-              {hasSound && !sharer?.isLocal && (
-                <button
-                  className={`icon ${streamMuted ? '' : 'on'}`}
-                  onClick={() => setStreamMuted(!streamMuted)}
-                  title={streamMuted ? 'Unmute the stream' : 'Mute the stream'}
-                  aria-label={streamMuted ? 'Unmute the stream' : 'Mute the stream'}
-                >
-                  <Icon name={streamMuted ? 'volumeOff' : 'volume'} size={16} />
-                </button>
+              ) : (
+                <div className="stage-empty hatch">
+                  {isHost && canShare ? (
+                    <>
+                      <p className="stage-msg">{t('room.ready')}</p>
+                      <button className="btn primary" onClick={toggleShare}>
+                        <Icon name="screen" size={15} /> {t('room.share')}
+                      </button>
+                      <p className="stage-hint mono">
+                        {quality.resolution} · {quality.fps} fps
+                      </p>
+                    </>
+                  ) : isHost ? (
+                    <>
+                      <p className="stage-msg small">{t('room.cantShare')}</p>
+                      <button className="btn" onClick={copyHostLink}>
+                        <Icon name="key" size={15} /> {t('room.hostLink')}
+                      </button>
+                      <p className="stage-hint mono">{t('room.hostLinkHint')}</p>
+                    </>
+                  ) : (
+                    <p className="stage-msg">{t('room.waiting', { host: info.host })}</p>
+                  )}
+                </div>
               )}
-              {screen && (
-                <>
-                  <button
-                    className={`icon ${showStats ? 'on' : ''}`}
-                    onClick={() => setShowStats(!showStats)}
-                    title="Stream stats"
-                    aria-label="Stream stats"
-                  >
-                    <Icon name="stats" size={16} />
-                  </button>
-                  {showVideo && (
-                    <button className="icon" onClick={pip} title="Picture in picture" aria-label="Picture in picture">
-                      <Icon name="pip" size={16} />
+
+              {sharer && (
+                <span className="stage-tag mono">
+                  {sharer.isLocal ? t('room.youShare') : t('room.screenOf', { name: sharer.name || info.host })}
+                  <span className="tag-sound">{hasSound ? t('room.withSound') : t('room.noSoundTag')}</span>
+                  {sharer.isLocal && selfPreview && (
+                    <button className="tag-btn" onClick={() => setSelfPreview(false)}>
+                      {t('room.hidePreview')}
                     </button>
                   )}
-                </>
+                </span>
               )}
-              {(elementFullscreen() || showVideo) && (
-                <button
-                  className="icon"
-                  onClick={toggleFullscreen}
-                  title="Full screen (F)"
-                  aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
-                >
-                  <Icon name={fullscreen ? 'shrink' : 'expand'} size={16} />
+
+              {showStats && screen && (
+                <div className="stats mono">
+                  {stats ? (
+                    <>
+                      <span>
+                        {stats.width && stats.height ? `${stats.width}×${stats.height}` : '—'} · {stats.fps ?? '—'} fps
+                      </span>
+                      <span>
+                        {stats.bitrate ? `${(stats.bitrate / 1e6).toFixed(1)} Mbps` : '—'}
+                        {stats.codec ? ` · ${stats.codec}` : ''}
+                      </span>
+                      {stats.limited && <span className="warn">{t('stats.limited', { reason: stats.limited })}</span>}
+                      {!!stats.lost && <span>{t('stats.lost', { n: stats.lost })}</span>}
+                    </>
+                  ) : (
+                    <span>{t('stats.measuring')}</span>
+                  )}
+                </div>
+              )}
+
+              {!canPlayAudio && remoteAudio && (
+                <button className="sound-gate btn primary" onClick={() => startAudio()}>
+                  <Icon name="volume" size={15} /> {t('room.tapSound')}
                 </button>
               )}
+
+              <div className="reactions-layer" aria-hidden="true">
+                {floating.map((r) => (
+                  <span key={r.id} className="float" style={{ left: `${r.x}%` }}>
+                    {r.emoji}
+                    {r.from && <small>{r.from}</small>}
+                  </span>
+                ))}
+              </div>
             </div>
 
-            {isHost && !local.isScreenShareEnabled && (
-              <div className="share-opts">
-                <div className="seg" role="group" aria-label="Stream quality">
-                  {(Object.keys(shareModes) as ShareMode[]).map((m) => (
-                    <button key={m} aria-pressed={mode === m} onClick={() => setMode(m)} title={shareModes[m].hint}>
-                      <Icon name={shareModes[m].icon} size={13} /> {shareModes[m].label}
-                    </button>
-                  ))}
+            {/* Over the picture on a computer, in a tray under it on a phone */}
+            <div className="dock">
+              {isHost && canShare && !local.isScreenShareEnabled && (
+                <div className="share-opts">
+                  <label className="pick">
+                    <select
+                      value={quality.resolution}
+                      onChange={(e) => setQuality({ ...quality, resolution: e.target.value as Resolution })}
+                      aria-label={t('room.resolution')}
+                      title={t('room.resolution')}
+                    >
+                      {(Object.keys(resolutions) as Resolution[]).map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                    <Icon name="chevron" size={12} />
+                  </label>
+                  <label className="pick">
+                    <select
+                      value={quality.fps}
+                      onChange={(e) => setQuality({ ...quality, fps: Number(e.target.value) as FrameRate })}
+                      aria-label={t('room.fps')}
+                      title={t('room.fps')}
+                    >
+                      {frameRates.map((f) => (
+                        <option key={f} value={f}>
+                          {f} fps
+                        </option>
+                      ))}
+                    </select>
+                    <Icon name="chevron" size={12} />
+                  </label>
+                  <button
+                    className={`icon ${shareAudio ? 'on' : ''}`}
+                    onClick={() => setShareAudio(!shareAudio)}
+                    title={shareAudio ? t('room.withAudio') : t('room.withoutAudio')}
+                    aria-label={shareAudio ? t('room.withAudio') : t('room.withoutAudio')}
+                    aria-pressed={shareAudio}
+                  >
+                    <Icon name={shareAudio ? 'volume' : 'volumeOff'} size={16} />
+                  </button>
                 </div>
+              )}
+
+              <div className="controls">
                 <button
-                  className={`icon ${shareAudio ? 'on' : ''}`}
-                  onClick={() => setShareAudio(!shareAudio)}
-                  title={shareAudio ? 'Sharing sound' : 'Not sharing sound'}
-                  aria-label={shareAudio ? 'Share without sound' : 'Share with sound'}
+                  className={`round ${local.isMicrophoneEnabled ? '' : 'off'}`}
+                  onClick={toggleMic}
+                  title={t('room.mic')}
+                  aria-label={local.isMicrophoneEnabled ? t('room.mute') : t('room.unmute')}
                 >
-                  <Icon name={shareAudio ? 'volume' : 'volumeOff'} size={16} />
+                  <Icon name={local.isMicrophoneEnabled ? 'mic' : 'micOff'} size={19} />
+                </button>
+                <button
+                  className={`round ${local.isCameraEnabled ? '' : 'off'}`}
+                  onClick={toggleCam}
+                  title={t('room.cam')}
+                  aria-label={local.isCameraEnabled ? t('room.camOff') : t('room.camOn')}
+                >
+                  <Icon name={local.isCameraEnabled ? 'camera' : 'cameraOff'} size={19} />
+                </button>
+                {isHost && canShare && (
+                  <button
+                    className={`round share ${local.isScreenShareEnabled ? 'active' : ''}`}
+                    onClick={toggleShare}
+                    title={local.isScreenShareEnabled ? t('room.stopSharing') : t('room.share')}
+                    aria-label={local.isScreenShareEnabled ? t('room.stopSharing') : t('room.share')}
+                  >
+                    <Icon name={local.isScreenShareEnabled ? 'screenOff' : 'screen'} size={19} />
+                  </button>
+                )}
+                <button
+                  className="round leave"
+                  onClick={() => room.disconnect()}
+                  title={t('room.leave')}
+                  aria-label={t('room.leave')}
+                >
+                  <Icon name="leave" size={19} />
                 </button>
               </div>
-            )}
+
+              <div className="corner">
+                <details className="react-menu">
+                  <summary className="icon" title={t('room.react')} aria-label={t('room.react')}>
+                    <Icon name="smile" size={16} />
+                  </summary>
+                  <div className="react-pop">
+                    {REACTIONS.map((e) => (
+                      <button key={e} onClick={() => react(e)} aria-label={`${t('room.react')} ${e}`}>
+                        {e}
+                      </button>
+                    ))}
+                  </div>
+                </details>
+                <button
+                  className={`icon ${chatOpen ? 'on' : ''}`}
+                  onClick={() => setChatOpen(!chatOpen)}
+                  title={t('room.chat')}
+                  aria-label={t('room.chat')}
+                >
+                  <Icon name="chat" size={16} />
+                  {unread > 0 && <span className="unread">{unread > 9 ? '9+' : unread}</span>}
+                </button>
+                {local.isMicrophoneEnabled && (
+                  <button
+                    className={`icon ${noiseFilter ? 'on' : ''}`}
+                    onClick={toggleNoiseFilter}
+                    title={noiseFilter ? t('room.noiseOn') : t('room.noiseOff')}
+                    aria-label={t('room.noise')}
+                    aria-pressed={noiseFilter}
+                  >
+                    <Icon name={noiseFilter ? 'wave' : 'waveOff'} size={16} />
+                  </button>
+                )}
+                {hasSound && !sharer?.isLocal && (
+                  <button
+                    className={`icon ${streamMuted ? '' : 'on'}`}
+                    onClick={() => setStreamMuted(!streamMuted)}
+                    title={streamMuted ? t('room.streamUnmute') : t('room.streamMute')}
+                    aria-label={streamMuted ? t('room.streamUnmute') : t('room.streamMute')}
+                  >
+                    <Icon name={streamMuted ? 'volumeOff' : 'volume'} size={16} />
+                  </button>
+                )}
+                {screen && (
+                  <>
+                    <button
+                      className={`icon ${showStats ? 'on' : ''}`}
+                      onClick={() => setShowStats(!showStats)}
+                      title={t('room.stats')}
+                      aria-label={t('room.stats')}
+                    >
+                      <Icon name="stats" size={16} />
+                    </button>
+                    {showVideo && (
+                      <button className="icon" onClick={pip} title={t('room.pip')} aria-label={t('room.pip')}>
+                        <Icon name="pip" size={16} />
+                      </button>
+                    )}
+                  </>
+                )}
+                {(elementFullscreen() || showVideo) && (
+                  <button
+                    className="icon"
+                    onClick={toggleFullscreen}
+                    title={t('room.fullscreen')}
+                    aria-label={fullscreen ? t('room.exitFullscreen') : t('room.fullscreen')}
+                  >
+                    <Icon name={fullscreen ? 'shrink' : 'expand'} size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           <Tiles isHost={isHost} onRemove={(identity) => manage({ action: 'remove', identity })} />

@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Icon } from './Icon';
 import { since } from '../lib/client';
+import { translator, type Lang } from '../lib/i18n';
 import type { RoomCard } from '../lib/rooms';
 
 // The host's browser refreshes the preview every few seconds while sharing
 const FRESH = 45_000;
 
-export default function RoomList({ initial, failed }: { initial: RoomCard[]; failed?: boolean }) {
+export default function RoomList({ lang, initial, failed }: { lang: Lang; initial: RoomCard[]; failed?: boolean }) {
+  const t = translator(lang);
   const [rooms, setRooms] = useState(initial);
   const [error, setError] = useState(!!failed);
   const [now, setNow] = useState(() => Date.now());
@@ -35,9 +37,9 @@ export default function RoomList({ initial, failed }: { initial: RoomCard[]; fai
   if (rooms.length === 0) {
     return (
       <div className="empty hatch">
-        <p>{error ? 'Could not load the rooms right now.' : 'Nobody is live right now.'}</p>
+        <p>{error ? t('list.failed') : t('list.empty')}</p>
         <a href="#start" className="link">
-          Start the first room
+          {t('list.startFirst')}
         </a>
       </div>
     );
@@ -54,16 +56,16 @@ export default function RoomList({ initial, failed }: { initial: RoomCard[]; fai
                 {sharing ? (
                   <img src={`/api/rooms/${r.id}/thumb?v=${r.thumbAt}`} alt="" loading="lazy" />
                 ) : (
-                  <span className="waiting hatch">waiting for the screen</span>
+                  <span className="waiting hatch">{t('list.waiting')}</span>
                 )}
                 <span className="badge mono">
-                  <span className="live-dot" /> live
+                  <span className="live-dot" /> {t('list.live')}
                 </span>
               </span>
               <span className="meta">
                 <span className="title">{r.title}</span>
                 <span className="sub mono">
-                  {r.host} · {since(r.createdAt, now)}
+                  {r.host} · {since(t, r.createdAt, now)}
                   <span className="viewers">
                     <Icon name="users" size={12} /> {r.participants}
                   </span>

@@ -3,6 +3,7 @@ import { VideoTrack, isTrackReference, useIsMuted, useIsSpeaking, useTracks } fr
 import { RemoteTrackPublication, Track, VideoQuality, type Participant } from 'livekit-client';
 import type { TrackReferenceOrPlaceholder } from '@livekit/components-react';
 import { Icon } from '../Icon';
+import { useT } from '../i18n';
 
 const roleOf = (p: Participant) => {
   try {
@@ -48,6 +49,7 @@ function Tile({
   canRemove: boolean;
   onRemove: (identity: string) => void;
 }) {
+  const t = useT();
   const p = trackRef.participant;
   const speaking = useIsSpeaking(p);
   const muted = useIsMuted({ participant: p, source: Track.Source.Microphone });
@@ -55,10 +57,15 @@ function Tile({
   const name = p.name || p.identity;
   const hasVideo = isTrackReference(trackRef) && !trackRef.publication.isMuted;
 
-  // Tiles are small: the lowest camera layer is plenty
+  // Tiles are small: the lowest camera layer is plenty. Nothing at all while the page is hidden.
   const pub = trackRef.publication;
   useEffect(() => {
-    if (pub instanceof RemoteTrackPublication) pub.setVideoQuality(VideoQuality.LOW);
+    if (!(pub instanceof RemoteTrackPublication)) return;
+    pub.setVideoQuality(VideoQuality.LOW);
+    const onVisibility = () => pub.setEnabled(!document.hidden);
+    onVisibility();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [pub]);
 
   return (
@@ -70,18 +77,19 @@ function Tile({
       )}
       <span className="tile-name">
         {muted && <Icon name="micOff" size={12} />}
-        {name}
-        {p.isLocal && <span className="you">you</span>}
-        {roleOf(p) === 'host' && <span className="host">host</span>}
+        <span className="tile-label">{name}</span>
+        {p.isLocal && <span className="you">{t('tile.you')}</span>}
+        {roleOf(p) === 'host' && <span className="host">{t('tile.host')}</span>}
       </span>
       {canRemove && (
         <button
           className={`tile-remove ${armed ? 'armed' : ''}`}
           onClick={() => (armed ? onRemove(p.identity) : setArmed(true))}
           onBlur={() => setArmed(false)}
-          title="Remove from the room"
+          title={t('tile.remove')}
+          aria-label={t('tile.remove')}
         >
-          {armed ? 'Remove?' : <Icon name="close" size={12} />}
+          {armed ? t('tile.removeConfirm') : <Icon name="close" size={12} />}
         </button>
       )}
     </li>

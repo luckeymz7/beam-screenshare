@@ -3,33 +3,36 @@ import Layout from '../../layouts/Layout.astro';
 import Row from '../../components/Row.astro';
 import RoomApp from '../../components/room/RoomApp';
 import { getRoom } from '../../lib/livekit';
+import { translator } from '../../lib/i18n';
 import '../../styles/room.css';
 
+const { lang } = Astro.locals;
+const t = translator(lang);
 const room = await getRoom(Astro.params.id ?? '').catch(() => null);
 if (!room) Astro.response.status = 404;
 ---
 
-<Layout title={room ? `${room.info.title} — beam` : 'Room not found — beam'} wide>
+<Layout title={room ? `${room.info.title} — beam` : `${t('page.notFound')} — beam`} wide>
   <Row line={false}>
     {
       room ? (
-        <RoomApp client:only="react" room={room.info}>
+        <RoomApp client:only="react" room={room.info} lang={lang}>
           <div class="gate" slot="fallback">
-            <p class="eyebrow">connecting</p>
+            <p class="eyebrow">{t('page.connecting')}</p>
             <h1 class="gate-title">{room.info.title}</h1>
           </div>
         </RoomApp>
       ) : (
         <div class="gate">
           <p class="eyebrow">beam</p>
-          <h1 class="gate-title">This room has ended</h1>
-          <p class="muted">The host ended it, everyone left, or the link is wrong.</p>
+          <h1 class="gate-title">{t('page.ended')}</h1>
+          <p class="muted">{t('page.endedBody')}</p>
           <div class="gate-actions">
             <a class="btn primary" href="/#start">
-              Start your own
+              {t('page.startOwn')}
             </a>
             <a class="btn" href="/">
-              See public rooms
+              {t('page.seePublic')}
             </a>
           </div>
         </div>
