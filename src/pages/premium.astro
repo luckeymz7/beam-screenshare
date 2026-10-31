@@ -1,0 +1,137 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Row from '../components/Row.astro';
+import Section from '../components/Section.astro';
+import Icon from '../components/Icon.astro';
+import Subscribe from '../components/Subscribe';
+import { translator } from '../lib/i18n';
+import { getMe } from '../lib/users';
+import { billingConfigured, PRICE_CENTS } from '../lib/billing';
+
+const { lang, user } = Astro.locals;
+const t = translator(lang);
+const me = await getMe(user).catch(() => null);
+const price = (PRICE_CENTS / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+const perks = [
+  { icon: 'screen', title: t('premium.p1.title'), body: t('premium.p1.body') },
+  { icon: 'pen', title: t('premium.p2.title'), body: t('premium.p2.body') },
+  { icon: 'palette', title: t('premium.p3.title'), body: t('premium.p3.body') },
+  { icon: 'sparkle', title: t('premium.p4.title'), body: t('premium.p4.body') },
+] as const;
+const free = [t('premium.f1'), t('premium.f2'), t('premium.f3'), t('premium.f4'), t('premium.f5')];
+---
+
+<Layout title={`${t('premium.title')} — beam`}>
+  <Row line={false}>
+    <div class="hero">
+      <p class="eyebrow">beam premium</p>
+      <h1 class="headline" set:html={t('premium.headline')} />
+      <p class="price"><strong>{price}</strong> {t('premium.perMonth')}</p>
+      <Subscribe
+        client:load
+        lang={lang}
+        billing={billingConfigured()}
+        initial={{ loggedIn: !!me, premium: !!me?.premium, plan: me?.plan ?? 'none', premiumUntil: me?.premiumUntil ?? null }}
+      />
+    </div>
+  </Row>
+
+  <Section id="perks" eyebrow={t('premium.whatEyebrow')} title={t('premium.whatTitle')}>
+    <ul class="perks">
+      {
+        perks.map((p) => (
+          <li>
+            <Icon name={p.icon} size={18} />
+            <span>
+              <strong>{p.title}</strong>
+              {p.body}
+            </span>
+          </li>
+        ))
+      }
+    </ul>
+  </Section>
+
+  <Section id="free" eyebrow={t('premium.freeEyebrow')} title={t('premium.freeTitle')}>
+    <ul class="free">
+      {
+        free.map((f) => (
+          <li>
+            <Icon name="check" size={14} /> {f}
+          </li>
+        ))
+      }
+    </ul>
+  </Section>
+</Layout>
+
+<style>
+  .hero {
+    padding-block: 4.5rem 3.5rem;
+    max-width: 40rem;
+  }
+  .headline {
+    margin-top: 0.75rem;
+    font-family: var(--font-serif);
+    font-size: clamp(2rem, 5vw, 3rem);
+    line-height: 1.1;
+    letter-spacing: -0.03em;
+  }
+  .headline :global(em) {
+    color: var(--accent);
+  }
+  .price {
+    margin: 1.25rem 0 1.5rem;
+    color: var(--muted);
+  }
+  .price strong {
+    color: var(--fg);
+    font-size: 1.6rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .perks {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+    gap: 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .perks li {
+    display: flex;
+    gap: 0.85rem;
+    padding: 1.1rem;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .perks :global(svg) {
+    flex: none;
+    color: var(--accent);
+  }
+  .perks strong {
+    display: block;
+    margin-bottom: 0.2rem;
+    color: var(--fg);
+  }
+  .free {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .free li {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .free :global(svg) {
+    color: var(--accent);
+  }
+</style>
