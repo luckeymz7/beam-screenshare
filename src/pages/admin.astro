@@ -1,0 +1,14 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Row from '../components/Row.astro';
+import AdminApp from '../components/admin/AdminApp';
+import '../styles/admin.css';
+
+// The middleware answers 404 to anyone who isn't in ADMIN_EMAILS
+---
+
+<Layout title="Admin — beam" wide>
+  <Row line={false}>
+    <AdminApp client:load />
+  </Row>
+</Layout>
