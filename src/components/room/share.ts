@@ -1,4 +1,4 @@
-import type { ScreenShareCaptureOptions, TrackPublishOptions } from 'livekit-client';
+import { AudioPresets, type AudioCaptureOptions, type ScreenShareCaptureOptions, type TrackPublishOptions } from 'livekit-client';
 import type { IconName } from '../../lib/icons';
 
 export type ShareMode = 'sharp' | 'smooth';
@@ -9,6 +9,26 @@ const isSafari = typeof navigator !== 'undefined' && /^((?!chrome|android).)*saf
 const common: ScreenShareCaptureOptions = {
   surfaceSwitching: 'include',
   selfBrowserSurface: 'exclude',
+};
+
+/**
+ * The screen's sound is music and video, not a voice: the browser's call processing (echo
+ * cancellation, noise suppression, auto gain) would mangle it, and LiveKit's default for audio
+ * is 48 kbps mono. Capture it untouched in stereo and send it at 128 kbps, without DTX (which
+ * cuts quiet passages) or RED (which spends the bitrate on redundancy).
+ */
+const hifiCapture: AudioCaptureOptions = {
+  channelCount: 2,
+  echoCancellation: false,
+  noiseSuppression: false,
+  autoGainControl: false,
+  voiceIsolation: false,
+};
+const hifiPublish: TrackPublishOptions = {
+  audioPreset: AudioPresets.musicHighQualityStereo,
+  forceStereo: true,
+  dtx: false,
+  red: false,
 };
 
 /**
@@ -23,6 +43,9 @@ const common: ScreenShareCaptureOptions = {
  * back to a single full-resolution stream on its own.
  */
 const vp9: TrackPublishOptions = { videoCodec: 'vp9', backupCodec: true, simulcast: true, scalabilityMode: 'L1T3' };
+
+// setScreenShareEnabled publishes the video and its sound with the same options
+const base: TrackPublishOptions = { ...vp9, ...hifiPublish };
 export const shareModes: Record<
   ShareMode,
   { label: string; hint: string; icon: IconName; capture: (audio: boolean) => ScreenShareCaptureOptions; publish: TrackPublishOptions }
@@ -33,13 +56,13 @@ export const shareModes: Record<
     icon: 'text',
     capture: (audio) => ({
       ...common,
-      audio,
+      audio: audio ? hifiCapture : false,
       systemAudio: audio ? 'include' : 'exclude',
       contentHint: 'detail',
       ...(isSafari ? {} : { resolution: { width: 2560, height: 1440, frameRate: 30 } }),
     }),
     publish: {
-      ...vp9,
+      ...base,
       screenShareEncoding: { maxBitrate: 6_000_000, maxFramerate: 30 },
       // Under pressure, drop frames before dropping resolution so text stays readable
       degradationPreference: 'maintain-resolution',
@@ -51,13 +74,13 @@ export const shareModes: Record<
     icon: 'film',
     capture: (audio) => ({
       ...common,
-      audio,
+      audio: audio ? hifiCapture : false,
       systemAudio: audio ? 'include' : 'exclude',
       contentHint: 'motion',
       ...(isSafari ? {} : { resolution: { width: 1920, height: 1080, frameRate: 60 } }),
     }),
     publish: {
-      ...vp9,
+      ...base,
       screenShareEncoding: { maxBitrate: 8_000_000, maxFramerate: 60 },
       degradationPreference: 'maintain-framerate',
     },
