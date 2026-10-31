@@ -1,10 +1,17 @@
 ---
 import Icon from './Icon.astro';
+import Account from './Account';
 import { langMeta, langs, translator } from '../lib/i18n';
+import { emailLogin, providers } from '../lib/auth';
+import { incomingCount } from '../lib/friends';
+import { getMe } from '../lib/users';
 
-const { lang } = Astro.locals;
+const { lang, user } = Astro.locals;
 const t = translator(lang);
 const path = Astro.url.pathname;
+const me = await getMe(user).catch(() => null);
+const account = me && { name: me.name, image: me.image, premium: me.premium, admin: me.admin };
+const requests = me ? await incomingCount(me.id).catch(() => 0) : 0;
 ---
 
 <header class="header">
@@ -12,6 +19,7 @@ const path = Astro.url.pathname;
     <a href="/" class="home" aria-label={t('nav.home')}>beam<span class="dot" aria-hidden="true"></span></a>
     <nav>
       <a href="/#start" class="nav-link">{t('nav.newRoom')}</a>
+      {!me?.premium && <a href="/premium" class="nav-link premium-link">{t('nav.premium')}</a>}
       <button class="icon-btn theme" type="button" aria-label={t('nav.theme')}>
         <Icon name="sun" class="i-sun" />
         <Icon name="moon" class="i-moon" />
@@ -39,6 +47,7 @@ const path = Astro.url.pathname;
           }
         </ul>
       </details>
+      <Account client:load me={account} providers={providers} email={emailLogin} requests={requests} lang={lang} />
     </nav>
   </div>
 </header>
@@ -208,9 +217,15 @@ const path = Astro.url.pathname;
     font-size: 10px;
     color: var(--faint);
   }
+  .premium-link {
+    color: var(--accent);
+  }
   @media (max-width: 480px) {
     nav {
       gap: 0.6rem;
+    }
+    .premium-link {
+      display: none;
     }
   }
 </style>

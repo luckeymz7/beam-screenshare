@@ -1,0 +1,49 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Row from '../components/Row.astro';
+import FriendsApp from '../components/FriendsApp';
+import LoginPrompt from '../components/LoginPrompt';
+import { translator } from '../lib/i18n';
+import { friendCode, listFriends } from '../lib/friends';
+import '../styles/room.css';
+
+const { lang, user } = Astro.locals;
+const t = translator(lang);
+const initial = user ? { ...(await listFriends(user.id)), code: await friendCode(user.id) } : null;
+---
+
+<Layout title={`${t('friends.title')} — beam`}>
+  <Row line={false}>
+    {
+      initial ? (
+        <div class="wrap">
+          <p class="eyebrow">{t('friends.eyebrow')}</p>
+          <h1 class="title">{t('friends.title')}</h1>
+          <FriendsApp client:load lang={lang} initial={initial} />
+        </div>
+      ) : (
+        <div class="gate">
+          <p class="eyebrow">beam</p>
+          <h1 class="gate-title">{t('friends.title')}</h1>
+          <p class="muted">{t('friends.loggedOut')}</p>
+          <div class="gate-actions">
+            <LoginPrompt client:load label={t('account.login')} />
+          </div>
+        </div>
+      )
+    }
+  </Row>
+</Layout>
+
+<style>
+  .wrap {
+    max-width: 40rem;
+    padding-block: 3rem 3.5rem;
+  }
+  .title {
+    margin: 0.5rem 0 2rem;
+    font-family: var(--font-serif);
+    font-size: 2rem;
+    letter-spacing: -0.02em;
+  }
+</style>

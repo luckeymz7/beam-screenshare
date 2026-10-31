@@ -1,0 +1,48 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Row from '../components/Row.astro';
+import ProfileEditor from '../components/ProfileEditor';
+import LoginPrompt from '../components/LoginPrompt';
+import { translator } from '../lib/i18n';
+import { getMe } from '../lib/users';
+import '../styles/room.css';
+
+const { lang, user } = Astro.locals;
+const t = translator(lang);
+const me = await getMe(user).catch(() => null);
+---
+
+<Layout title={`${t('profile.title')} — beam`}>
+  <Row line={false}>
+    {
+      me ? (
+        <div class="wrap">
+          <p class="eyebrow">{t('profile.eyebrow')}</p>
+          <h1 class="title">{t('profile.title')}</h1>
+          <ProfileEditor client:load lang={lang} me={me} />
+        </div>
+      ) : (
+        <div class="gate">
+          <p class="eyebrow">beam</p>
+          <h1 class="gate-title">{t('profile.title')}</h1>
+          <p class="muted">{t('profile.loggedOut')}</p>
+          <div class="gate-actions">
+            <LoginPrompt client:load label={t('account.login')} />
+          </div>
+        </div>
+      )
+    }
+  </Row>
+</Layout>
+
+<style>
+  .wrap {
+    padding-block: 3rem 3.5rem;
+  }
+  .title {
+    margin: 0.5rem 0 2rem;
+    font-family: var(--font-serif);
+    font-size: 2rem;
+    letter-spacing: -0.02em;
+  }
+</style>

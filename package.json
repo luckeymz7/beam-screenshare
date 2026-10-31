@@ -13,10 +13,13 @@
   "dependencies": {
     "@astrojs/react": "7.1.2",
     "@astrojs/vercel": "11.0.17",
+    "@better-auth/drizzle-adapter": "1.7.14",
     "@libsql/client": "0.18.0",
     "@livekit/components-react": "2.9.24",
     "@sapphi-red/web-noise-suppressor": "0.4.1",
     "astro": "^7.4.4",
+    "better-auth": "1.7.14",
+    "drizzle-orm": "0.45.4",
     "livekit-client": "2.23.0",
     "livekit-server-sdk": "2.19.2",
     "react": "19.3.1",

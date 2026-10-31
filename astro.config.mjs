@@ -15,9 +15,22 @@ export default defineConfig({
       LIVEKIT_URL: envField.string({ context: 'server', access: 'secret', optional: true }),
       LIVEKIT_API_KEY: envField.string({ context: 'server', access: 'secret', optional: true }),
       LIVEKIT_API_SECRET: envField.string({ context: 'server', access: 'secret', optional: true }),
-      // Preview images of public rooms: a local file by default, a Turso URL on Vercel
+      // Accounts, payments, previews and metrics: a local file by default, a Turso URL on Vercel
       DATABASE_URL: envField.string({ context: 'server', access: 'secret', default: 'file:./data/beam.db' }),
       DATABASE_AUTH_TOKEN: envField.string({ context: 'server', access: 'secret', optional: true }),
+      // Login (optional for visitors). Each provider shows up only when its keys are set.
+      BETTER_AUTH_SECRET: envField.string({ context: 'server', access: 'secret', optional: true }),
+      BETTER_AUTH_URL: envField.string({ context: 'server', access: 'secret', optional: true }),
+      GOOGLE_CLIENT_ID: envField.string({ context: 'server', access: 'secret', optional: true }),
+      GOOGLE_CLIENT_SECRET: envField.string({ context: 'server', access: 'secret', optional: true }),
+      DISCORD_CLIENT_ID: envField.string({ context: 'server', access: 'secret', optional: true }),
+      DISCORD_CLIENT_SECRET: envField.string({ context: 'server', access: 'secret', optional: true }),
+      // Comma-separated emails that can open /admin
+      ADMIN_EMAILS: envField.string({ context: 'server', access: 'secret', optional: true }),
+      // Premium, through AbacatePay (a monthly product created in its dashboard)
+      ABACATEPAY_API_KEY: envField.string({ context: 'server', access: 'secret', optional: true }),
+      ABACATEPAY_PRODUCT_ID: envField.string({ context: 'server', access: 'secret', optional: true }),
+      ABACATEPAY_WEBHOOK_SECRET: envField.string({ context: 'server', access: 'secret', optional: true }),
     },
   },
   fonts: [

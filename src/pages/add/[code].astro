@@ -1,0 +1,50 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Row from '../../components/Row.astro';
+import AddFriend from '../../components/AddFriend';
+import { translator } from '../../lib/i18n';
+import { userByCode } from '../../lib/friends';
+import '../../styles/room.css';
+
+const { lang } = Astro.locals;
+const t = translator(lang);
+const person = await userByCode((Astro.params.code ?? '').toLowerCase()).catch(() => null);
+if (!person) Astro.response.status = 404;
+---
+
+<Layout title={person ? `${t('friends.addTitle', { name: person.name })}` : `${t('friends.notFound')} — beam`}>
+  <Row line={false}>
+    {
+      person ? (
+        <div class="gate">
+          <p class="eyebrow">{t('friends.eyebrow')}</p>
+          <h1 class="gate-title">{t('friends.addTitle', { name: person.name })}</h1>
+          <p class="muted">{t('friends.addBody', { name: person.name })}</p>
+          <AddFriend
+            client:load
+            lang={lang}
+            person={{
+              id: person.id,
+              name: person.name,
+              image: person.image ?? null,
+              bio: person.bio ?? '',
+              premium: !!person.premium,
+              theme: person.theme ?? null,
+              banner: person.banner ?? null,
+            }}
+          />
+        </div>
+      ) : (
+        <div class="gate">
+          <p class="eyebrow">beam</p>
+          <h1 class="gate-title">{t('friends.notFound')}</h1>
+          <div class="gate-actions">
+            <a class="btn" href="/">
+              {t('page.backHome')}
+            </a>
+          </div>
+        </div>
+      )
+    }
+  </Row>
+</Layout>

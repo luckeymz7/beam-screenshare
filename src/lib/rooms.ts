@@ -1,5 +1,5 @@
 import { publicRooms, type RoomInfo } from './livekit';
-import { thumbTimes } from './db';
+import { thumbTimes } from './thumbs';
 
 export type RoomCard = RoomInfo & { thumbAt: number | null };
 
