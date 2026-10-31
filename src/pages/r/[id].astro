@@ -1,0 +1,39 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import Row from '../../components/Row.astro';
+import RoomApp from '../../components/room/RoomApp';
+import { getRoom } from '../../lib/livekit';
+import '../../styles/room.css';
+
+const room = await getRoom(Astro.params.id ?? '').catch(() => null);
+if (!room) Astro.response.status = 404;
+---
+
+<Layout title={room ? `${room.info.title} — beam` : 'Room not found — beam'} wide>
+  <Row line={false}>
+    {
+      room ? (
+        <RoomApp client:only="react" room={room.info}>
+          <div class="gate" slot="fallback">
+            <p class="eyebrow">connecting</p>
+            <h1 class="gate-title">{room.info.title}</h1>
+          </div>
+        </RoomApp>
+      ) : (
+        <div class="gate">
+          <p class="eyebrow">beam</p>
+          <h1 class="gate-title">This room has ended</h1>
+          <p class="muted">The host ended it, everyone left, or the link is wrong.</p>
+          <div class="gate-actions">
+            <a class="btn primary" href="/#start">
+              Start your own
+            </a>
+            <a class="btn" href="/">
+              See public rooms
+            </a>
+          </div>
+        </div>
+      )
+    }
+  </Row>
+</Layout>

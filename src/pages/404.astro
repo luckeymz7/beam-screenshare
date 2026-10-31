@@ -1,0 +1,18 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Row from '../components/Row.astro';
+import '../styles/room.css';
+
+Astro.response.status = 404;
+---
+
+<Layout title="Not found — beam">
+  <Row line={false}>
+    <div class="gate">
+      <p class="eyebrow">404</p>
+      <h1 class="gate-title">Nothing here</h1>
+      <p class="muted">This page doesn't exist.</p>
+      <div class="gate-actions"><a class="btn" href="/">Back home</a></div>
+    </div>
+  </Row>
+</Layout>
