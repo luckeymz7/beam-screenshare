@@ -1,0 +1,19 @@
+# build output
+dist/
+.vercel/
+
+# generated types
+.astro/
+
+# dependencies
+node_modules/
+
+# environment variables
+.env
+.env.production
+
+# local database (preview images)
+data/
+
+.DS_Store
+.idea/
