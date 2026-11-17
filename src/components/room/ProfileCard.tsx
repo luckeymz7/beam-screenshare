@@ -5,6 +5,7 @@ import { Icon } from '../Icon';
 import { useT } from '../i18n';
 import { themeStyle } from '../../lib/themes';
 import type { ParticipantMeta } from '../../lib/livekit';
+import { setUserPref, useListen, userPref } from './listen';
 
 /**
  * Someone's card, like Discord's: banner, avatar, name and bio. A premium theme tints it.
@@ -17,6 +18,7 @@ export function ProfileCard({
   onClose,
   friendButton,
   onMakeHost,
+  listenKey,
 }: {
   name: string;
   meta: Partial<ParticipantMeta>;
@@ -26,6 +28,8 @@ export function ProfileCard({
   friendButton?: boolean;
   /** The host, looking at someone else: hand them the room */
   onMakeHost?: () => void;
+  /** Someone else in the room: mute them or turn them down, for you only */
+  listenKey?: string;
 }) {
   const t = useT();
   const [armed, setArmed] = useState(false);
@@ -54,6 +58,7 @@ export function ProfileCard({
           </p>
         )}
         {meta.bio && <p className="pc-bio">{meta.bio}</p>}
+        {listenKey && <ListenControls listenKey={listenKey} />}
         {(showFriend || onMakeHost) && (
           <div className="pc-actions">
             {showFriend && <FriendButton userId={meta.uid!} />}
@@ -74,6 +79,39 @@ export function ProfileCard({
           ×
         </button>
       )}
+    </div>
+  );
+}
+
+/** Discord's "Mute" and "User volume": only in your browser, nobody else is affected. */
+function ListenControls({ listenKey }: { listenKey: string }) {
+  const t = useT();
+  const pref = userPref(useListen(), listenKey);
+  return (
+    <div className="pc-listen">
+      <button
+        className={`btn friend-btn ${pref.muted ? 'danger' : ''}`}
+        onClick={() => setUserPref(listenKey, { muted: !pref.muted })}
+        aria-pressed={pref.muted}
+      >
+        <Icon name={pref.muted ? 'volumeOff' : 'volume'} size={14} /> {pref.muted ? t('listen.unmute') : t('listen.mute')}
+      </button>
+      <label className="pc-volume">
+        <span className="mono">
+          {t('listen.volume')} · {Math.round(pref.volume * 100)}%
+        </span>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={5}
+          value={Math.round(pref.volume * 100)}
+          disabled={pref.muted}
+          onChange={(e) => setUserPref(listenKey, { volume: Number(e.target.value) / 100 })}
+          aria-label={t('listen.volume')}
+        />
+      </label>
+      <p className="pc-note mono">{t('listen.onlyYou')}</p>
     </div>
   );
 }

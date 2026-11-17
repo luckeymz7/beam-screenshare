@@ -7,6 +7,7 @@ import { Avatar } from '../Account';
 import { useT } from '../i18n';
 import { metaOf } from './meta';
 import { ProfileCard } from './ProfileCard';
+import { listenKey, useListen, userPref } from './listen';
 
 /** Everyone in the room, under the stage: camera if on, their picture or initials otherwise. */
 export function Tiles({
@@ -62,6 +63,7 @@ export function Tiles({
             you={opened.isLocal}
             friendButton
             onMakeHost={isHost && !opened.isLocal ? () => onMakeHost(opened.identity) : undefined}
+            listenKey={opened.isLocal ? undefined : listenKey(opened)}
             onClose={() => setOpen(null)}
           />
         </div>
@@ -88,6 +90,9 @@ function Tile({
   const meta = metaOf(p);
   const speaking = useIsSpeaking(p);
   const muted = useIsMuted({ participant: p, source: Track.Source.Microphone });
+  const listen = useListen();
+  const mutedByYou = !p.isLocal && userPref(listen, listenKey(p)).muted;
+  const deafened = p.isLocal && listen.deafened;
   const [armed, setArmed] = useState(false);
   const name = p.name || p.identity;
   const hasVideo = isTrackReference(trackRef) && !trackRef.publication.isMuted;
@@ -114,7 +119,18 @@ function Tile({
         </span>
       )}
       <span className="tile-name">
-        {muted && <Icon name="micOff" size={12} />}
+        {deafened ? (
+          <span className="deaf-icon" title={t('tile.deafened')}>
+            <Icon name="headphonesOff" size={12} />
+          </span>
+        ) : (
+          muted && <Icon name="micOff" size={12} />
+        )}
+        {mutedByYou && (
+          <span className="muted-by-you" title={t('tile.mutedByYou')}>
+            <Icon name="volumeOff" size={12} />
+          </span>
+        )}
         <span className="tile-label">{name}</span>
         {meta.premium && <span className="star" title="premium">✦</span>}
         {p.isLocal && <span className="you">{t('tile.you')}</span>}

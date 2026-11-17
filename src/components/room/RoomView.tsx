@@ -14,14 +14,17 @@ import {
 } from '@livekit/components-react';
 import { RemoteAudioTrack, Track, type LocalAudioTrack } from 'livekit-client';
 import { Icon } from '../Icon';
+import type { IconName } from '../../lib/icons';
 import { useT } from '../i18n';
 import {
   forgetHostKey,
   saveHostKey,
   saveNoiseFilter,
   saveQuality,
+  saveTheater,
   savedNoiseFilter,
   savedQuality,
+  savedTheater,
   since,
 } from '../../lib/client';
 import { liveRoom, roleOf } from './meta';
@@ -46,6 +49,7 @@ import { useStreamStats } from './useStreamStats';
 import { useScreenLayer } from './useScreenLayer';
 import { useNoiseFilter } from './noiseFilter';
 import { useThumbnails } from './useThumbnails';
+import { listenKey, setDeafened, useListen, voiceGain } from './listen';
 import { Tiles } from './Tiles';
 import { Chat } from './Chat';
 
@@ -54,6 +58,22 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 type Floating = { id: number; emoji: string; x: number; from: string };
+
+/** Follows a CSS media query. */
+function useMedia(query: string) {
+  const [match, setMatch] = useState(() => matchMedia(query).matches);
+  useEffect(() => {
+    const list = matchMedia(query);
+    const onChange = () => setMatch(list.matches);
+    onChange();
+    list.addEventListener('change', onChange);
+    return () => list.removeEventListener('change', onChange);
+  }, [query]);
+  return match;
+}
+
+// "Full screen (F)" → "Full screen": the sheet on a phone has no keyboard
+const plain = (label: string) => label.replace(/\s*\([A-Z]\)$/, '');
 
 // LiveKit's protocol number for a screen share in a permission list (TrackSource.SCREEN_SHARE)
 const SCREEN_SHARE_SOURCE = 3;
@@ -244,10 +264,34 @@ export function RoomView({
     notify(noiseFilter ? t('room.noiseOff') : t('room.noiseOn'), 2000);
   };
 
-  const toggleMic = () =>
+  // ---- deafen, like Discord: you hear nobody, and your mic goes off with it (and comes back on
+  // when you undeafen, if it was on). Turning the mic on undeafens.
+  const listen = useListen();
+  const micBeforeDeafen = useRef(false);
+  const setMic = (on: boolean) =>
     local.localParticipant
-      .setMicrophoneEnabled(!local.isMicrophoneEnabled)
+      .setMicrophoneEnabled(on)
       .catch((e: Error) => notify(t('room.micError', { error: e.message })));
+  const toggleMic = () => {
+    if (!local.isMicrophoneEnabled && listen.deafened) {
+      micBeforeDeafen.current = false;
+      setDeafened(false);
+    }
+    setMic(!local.isMicrophoneEnabled);
+  };
+  const toggleDeafen = () => {
+    if (listen.deafened) {
+      setDeafened(false);
+      if (micBeforeDeafen.current) setMic(true);
+      return;
+    }
+    micBeforeDeafen.current = local.isMicrophoneEnabled;
+    if (local.isMicrophoneEnabled) setMic(false);
+    setDeafened(true);
+    notify(t('room.deafened'), 2500);
+  };
+  // A new room starts hearing everyone
+  useEffect(() => () => void setDeafened(false), []);
   const toggleCam = () =>
     local.localParticipant
       .setCameraEnabled(!local.isCameraEnabled)
@@ -317,14 +361,49 @@ export function RoomView({
     idleTimer.current = window.setTimeout(() => setIdle(true), 3000);
   };
 
-  // ---- keyboard: M mic, V camera, F full screen
+  // ---- theater: the room takes the whole window, the picture as big as it fits. On iPhone, where
+  // only the bare video player can go full screen, this is the big view that keeps chat, drawing
+  // and the controls.
+  const [theater, setTheaterState] = useState(savedTheater);
+  const setTheater = (on: boolean) => {
+    setTheaterState(on);
+    saveTheater(on);
+  };
+  useEffect(() => {
+    document.documentElement.classList.toggle('theater-lock', theater);
+    return () => document.documentElement.classList.remove('theater-lock');
+  }, [theater]);
+
+  // Phones (and short landscape screens) get the controls in a tray under the picture, except in
+  // full screen, or in theater mode with the phone on its side, where the picture gets it all
+  const small = useMedia('(max-width: 640px), (max-height: 520px)');
+  const landscape = useMedia('(orientation: landscape)');
+  const tray = small && !fullscreen && !(theater && landscape);
+  const overlay = !tray; // controls float over the picture
+  const [moreOpen, setMoreOpenState] = useState(false);
+  const setMoreOpen = (open: boolean) => {
+    setMoreOpenState(open);
+    if (open) setChatOpen(false);
+  };
+  useEffect(() => {
+    if (!tray) setMoreOpenState(false);
+  }, [tray]);
+
+  // ---- keyboard: M mic, V camera, F full screen, T theater, Esc leaves theater
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
+      if (e.key === 'Escape') {
+        if (moreOpen) setMoreOpen(false);
+        else if (theater && !fullscreenElement() && !drawing) setTheater(false);
+        return;
+      }
       if (e.metaKey || e.ctrlKey || e.altKey || el.closest('input, textarea, select, [contenteditable]')) return;
       if (e.key === 'm') toggleMic();
       else if (e.key === 'v') toggleCam();
+      else if (e.key === 'd') toggleDeafen();
       else if (e.key === 'f') toggleFullscreen();
+      else if (e.key === 't') setTheater(!theater);
     };
     addEventListener('keydown', onKey);
     return () => removeEventListener('keydown', onKey);
@@ -369,25 +448,68 @@ export function RoomView({
   const [screenAudio] = useTracks([Track.Source.ScreenShareAudio]);
   const hasSound = !!screenAudio && screenAudio.participant === sharer;
   const [streamMuted, setStreamMuted] = useState(false);
-  const screenAudioTrack = screenAudio?.publication?.track;
-  useEffect(() => {
-    if (screenAudioTrack instanceof RemoteAudioTrack) screenAudioTrack.setVolume(streamMuted ? 0 : 1);
-  }, [screenAudioTrack, streamMuted]);
+
   // Safari (and iPhone) may refuse to start audio until the page is tapped again; only ask when
   // there is something to hear
   const { canPlayAudio, startAudio } = useAudioPlayback(room);
-  const remoteAudio = useTracks([Track.Source.Microphone, Track.Source.ScreenShareAudio]).some(
-    (a) => !a.participant.isLocal,
-  );
+  const audioTracks = useTracks([Track.Source.Microphone, Track.Source.ScreenShareAudio]);
+  const remoteAudio = audioTracks.some((a) => !a.participant.isLocal);
+  // Everything you hear goes through here: deafen, each person's mute and volume, the stream's sound
+  useEffect(() => {
+    for (const ref of audioTracks) {
+      const track = ref.publication?.track;
+      if (!(track instanceof RemoteAudioTrack)) continue;
+      const stream = ref.source === Track.Source.ScreenShareAudio;
+      track.setVolume(
+        stream ? (listen.deafened || streamMuted ? 0 : 1) : voiceGain(listen, listenKey(ref.participant)),
+      );
+    }
+  });
   const showVideo = !!screen && (!screen.participant.isLocal || selfPreview);
   useEffect(() => {
     if (!showVideo) setDrawing(false);
   }, [showVideo]);
 
+  // The smaller controls: icons over the picture on a computer, a labelled sheet on a phone
+  type Extra = { key: string; icon: IconName; label: string; run: () => void; on?: boolean; locked?: boolean };
+  const extras = [
+    showVideo && { key: 'draw', icon: 'pen', label: t('draw.title'), run: toggleDrawing, on: drawing, locked: !premium },
+    local.isMicrophoneEnabled && {
+      key: 'noise',
+      icon: noiseFilter ? 'wave' : 'waveOff',
+      label: noiseFilter ? t('room.noiseOn') : t('room.noiseOff'),
+      run: toggleNoiseFilter,
+      on: noiseFilter,
+    },
+    hasSound &&
+      !sharer?.isLocal && {
+        key: 'sound',
+        icon: streamMuted ? 'volumeOff' : 'volume',
+        label: streamMuted ? t('room.streamUnmute') : t('room.streamMute'),
+        run: () => setStreamMuted(!streamMuted),
+        on: !streamMuted,
+      },
+    screen && { key: 'stats', icon: 'stats', label: t('room.stats'), run: () => setShowStats(!showStats), on: showStats },
+    showVideo && { key: 'pip', icon: 'pip', label: t('room.pip'), run: pip },
+    {
+      key: 'theater',
+      icon: theater ? 'theaterOff' : 'theater',
+      label: theater ? t('room.exitTheater') : t('room.theater'),
+      run: () => setTheater(!theater),
+      on: theater,
+    },
+    (elementFullscreen() || showVideo) && {
+      key: 'fullscreen',
+      icon: fullscreen ? 'shrink' : 'expand',
+      label: fullscreen ? t('room.exitFullscreen') : t('room.fullscreen'),
+      run: toggleFullscreen,
+    },
+  ].filter(Boolean) as Extra[];
+
   return (
     // A premium host's theme tints the room
     <div
-      className={`room ${chatOpen ? 'with-chat' : ''} ${info.theme ? 'themed' : ''}`}
+      className={`room ${chatOpen ? 'with-chat' : ''} ${info.theme ? 'themed' : ''} ${theater ? 'theater' : ''}`}
       style={themeStyle(info.theme)}
     >
       <header className="room-bar">
@@ -467,7 +589,7 @@ export function RoomView({
         <div className="room-col">
           <div
             ref={stageRef}
-            className={`stage ${fullscreen && idle && !drawing ? 'idle' : ''}`}
+            className={`stage ${tray ? 'tray' : ''} ${(fullscreen || (theater && overlay)) && idle && !drawing ? 'idle' : ''}`}
             onPointerMove={wake}
             onPointerDown={wake}
             onDoubleClick={onStageDoubleClick}
@@ -631,6 +753,15 @@ export function RoomView({
                   <Icon name={local.isMicrophoneEnabled ? 'mic' : 'micOff'} size={19} />
                 </button>
                 <button
+                  className={`round ${listen.deafened ? 'deaf' : ''}`}
+                  onClick={toggleDeafen}
+                  title={listen.deafened ? t('room.undeafen') : t('room.deafen')}
+                  aria-label={listen.deafened ? t('room.undeafen') : t('room.deafen')}
+                  aria-pressed={listen.deafened}
+                >
+                  <Icon name={listen.deafened ? 'headphonesOff' : 'headphones'} size={19} />
+                </button>
+                <button
                   className={`round ${local.isCameraEnabled ? '' : 'off'}`}
                   onClick={toggleCam}
                   title={t('room.cam')}
@@ -648,6 +779,30 @@ export function RoomView({
                     <Icon name={local.isScreenShareEnabled ? 'screenOff' : 'screen'} size={19} />
                   </button>
                 )}
+                {/* On a phone, chat and everything else sit with the big buttons */}
+                {tray && (
+                  <>
+                    <button
+                      className={`round sub ${chatOpen ? 'on' : ''}`}
+                      onClick={() => setChatOpen(!chatOpen)}
+                      title={t('room.chat')}
+                      aria-label={t('room.chat')}
+                      aria-pressed={chatOpen}
+                    >
+                      <Icon name="chat" size={19} />
+                      {unread > 0 && <span className="unread">{unread > 9 ? '9+' : unread}</span>}
+                    </button>
+                    <button
+                      className={`round sub ${moreOpen ? 'on' : ''}`}
+                      onClick={() => setMoreOpen(!moreOpen)}
+                      title={t('room.more')}
+                      aria-label={t('room.more')}
+                      aria-expanded={moreOpen}
+                    >
+                      <Icon name="more" size={19} />
+                    </button>
+                  </>
+                )}
                 <button
                   className="round leave"
                   onClick={() => room.disconnect()}
@@ -658,88 +813,43 @@ export function RoomView({
                 </button>
               </div>
 
-              <div className="corner">
-                <details className="react-menu">
-                  <summary className="icon" title={t('room.react')} aria-label={t('room.react')}>
-                    <Icon name="smile" size={16} />
-                  </summary>
-                  <div className="react-pop">
-                    {REACTIONS.map((e) => (
-                      <button key={e} onClick={() => react(e)} aria-label={`${t('room.react')} ${e}`}>
-                        {e}
-                      </button>
-                    ))}
-                  </div>
-                </details>
-                <button
-                  className={`icon ${chatOpen ? 'on' : ''}`}
-                  onClick={() => setChatOpen(!chatOpen)}
-                  title={t('room.chat')}
-                  aria-label={t('room.chat')}
-                >
-                  <Icon name="chat" size={16} />
-                  {unread > 0 && <span className="unread">{unread > 9 ? '9+' : unread}</span>}
-                </button>
-                {showVideo && (
+              {overlay && (
+                <div className="corner">
+                  <details className="react-menu">
+                    <summary className="icon" title={t('room.react')} aria-label={t('room.react')}>
+                      <Icon name="smile" size={16} />
+                    </summary>
+                    <div className="react-pop">
+                      {REACTIONS.map((e) => (
+                        <button key={e} onClick={() => react(e)} aria-label={`${t('room.react')} ${e}`}>
+                          {e}
+                        </button>
+                      ))}
+                    </div>
+                  </details>
                   <button
-                    className={`icon ${drawing ? 'on' : ''} ${premium ? '' : 'locked'}`}
-                    onClick={toggleDrawing}
-                    title={t('draw.title')}
-                    aria-label={t('draw.title')}
-                    aria-pressed={drawing}
+                    className={`icon ${chatOpen ? 'on' : ''}`}
+                    onClick={() => setChatOpen(!chatOpen)}
+                    title={t('room.chat')}
+                    aria-label={t('room.chat')}
                   >
-                    <Icon name="pen" size={16} />
+                    <Icon name="chat" size={16} />
+                    {unread > 0 && <span className="unread">{unread > 9 ? '9+' : unread}</span>}
                   </button>
-                )}
-                {local.isMicrophoneEnabled && (
-                  <button
-                    className={`icon ${noiseFilter ? 'on' : ''}`}
-                    onClick={toggleNoiseFilter}
-                    title={noiseFilter ? t('room.noiseOn') : t('room.noiseOff')}
-                    aria-label={t('room.noise')}
-                    aria-pressed={noiseFilter}
-                  >
-                    <Icon name={noiseFilter ? 'wave' : 'waveOff'} size={16} />
-                  </button>
-                )}
-                {hasSound && !sharer?.isLocal && (
-                  <button
-                    className={`icon ${streamMuted ? '' : 'on'}`}
-                    onClick={() => setStreamMuted(!streamMuted)}
-                    title={streamMuted ? t('room.streamUnmute') : t('room.streamMute')}
-                    aria-label={streamMuted ? t('room.streamUnmute') : t('room.streamMute')}
-                  >
-                    <Icon name={streamMuted ? 'volumeOff' : 'volume'} size={16} />
-                  </button>
-                )}
-                {screen && (
-                  <>
+                  {extras.map((a) => (
                     <button
-                      className={`icon ${showStats ? 'on' : ''}`}
-                      onClick={() => setShowStats(!showStats)}
-                      title={t('room.stats')}
-                      aria-label={t('room.stats')}
+                      key={a.key}
+                      className={`icon ${a.on ? 'on' : ''} ${a.locked ? 'locked' : ''}`}
+                      onClick={a.run}
+                      title={a.label}
+                      aria-label={a.label}
+                      aria-pressed={a.on}
                     >
-                      <Icon name="stats" size={16} />
+                      <Icon name={a.icon} size={16} />
                     </button>
-                    {showVideo && (
-                      <button className="icon" onClick={pip} title={t('room.pip')} aria-label={t('room.pip')}>
-                        <Icon name="pip" size={16} />
-                      </button>
-                    )}
-                  </>
-                )}
-                {(elementFullscreen() || showVideo) && (
-                  <button
-                    className="icon"
-                    onClick={toggleFullscreen}
-                    title={t('room.fullscreen')}
-                    aria-label={fullscreen ? t('room.exitFullscreen') : t('room.fullscreen')}
-                  >
-                    <Icon name={fullscreen ? 'shrink' : 'expand'} size={16} />
-                  </button>
-                )}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -748,6 +858,43 @@ export function RoomView({
 
         {chatOpen && <Chat chat={chat} onClose={() => setChatOpen(false)} />}
       </div>
+
+      {tray && moreOpen && (
+        <div className="sheet-backdrop" onClick={() => setMoreOpen(false)}>
+          <div className="sheet" role="dialog" aria-label={t('room.more')} onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-reacts">
+              {REACTIONS.map((e) => (
+                <button
+                  key={e}
+                  onClick={() => {
+                    react(e);
+                    setMoreOpen(false);
+                  }}
+                  aria-label={`${t('room.react')} ${e}`}
+                >
+                  {e}
+                </button>
+              ))}
+            </div>
+            <div className="sheet-grid">
+              {extras.map((a) => (
+                <button
+                  key={a.key}
+                  className={`sheet-btn ${a.on ? 'on' : ''} ${a.locked ? 'locked' : ''}`}
+                  aria-pressed={a.on}
+                  onClick={() => {
+                    a.run();
+                    setMoreOpen(false);
+                  }}
+                >
+                  <Icon name={a.icon} size={18} />
+                  <span>{plain(a.label)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && (
         <div className="toast" role="status">

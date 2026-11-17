@@ -26,6 +26,9 @@ export const icons = {
   volume: '<path d="M4 9v6h4l5 4V5L8 9zM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>',
   volumeOff: '<path d="M4 9v6h4l5 4V5L8 9zM17 9.5l5 5M22 9.5l-5 5"/>',
   chevron: '<path d="m6 9 6 6 6-6"/>',
+  theater: '<rect x="2" y="5" width="20" height="12" rx="2"/><path d="M7 20h10"/>',
+  theaterOff: '<rect x="5" y="6" width="14" height="10" rx="2"/><path d="M9 20h6"/>',
+  more: '<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>',
   sliders: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
   sparkle: '<path d="M12 3c.6 4.2 2.8 6.4 7 7-4.2.6-6.4 2.8-7 7-.6-4.2-2.8-6.4-7-7 4.2-.6 6.4-2.8 7-7z"/>',
   pen: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16zM13.5 6.5l4 4"/>',
@@ -38,6 +41,8 @@ export const icons = {
     '<path d="M8.5 6.5c-1.6.3-3 .8-4 1.5C3 10.5 2.5 13 2.7 16c1.4 1 2.8 1.7 4.3 2.1l.9-1.5M15.5 6.5c1.6.3 3 .8 4 1.5 1.5 2.5 2 5 1.8 8-1.4 1-2.8 1.7-4.3 2.1l-.9-1.5M7 16.5c3.2 1.4 6.8 1.4 10 0M7.5 7.5c2.9-1 6.1-1 9 0"/><circle cx="9.3" cy="12.5" r="1.3"/><circle cx="14.7" cy="12.5" r="1.3"/>',
   wave: '<path d="M3 12h1M7 9v6M11 5v14M15 8v8M19 11v2"/>',
   waveOff: '<path d="M3 12h1M7 9v6M11 5v14M15 8v8M19 11v2M3 3l18 18"/>',
+  headphones: '<path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="14" width="5" height="7" rx="1.5"/><rect x="16" y="14" width="5" height="7" rx="1.5"/>',
+  headphonesOff: '<path d="M4 15v-3a8 8 0 0 1 12.5-6.6M19.6 9.2A8 8 0 0 1 20 12v3"/><rect x="3" y="14" width="5" height="7" rx="1.5"/><path d="M16 18v-2.5a1.5 1.5 0 0 1 1.5-1.5H20a1 1 0 0 1 1 1v4.5a1.5 1.5 0 0 1-1.5 1.5H18M3 3l18 18"/>',
   key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M15 8l2 2"/>',
 } as const;
 

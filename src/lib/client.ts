@@ -31,6 +31,10 @@ export const forgetHostKey = (room: string) => {
 export const savedNoiseFilter = () => read('beam:noise') !== 'off';
 export const saveNoiseFilter = (on: boolean) => write('beam:noise', on ? 'on' : 'off');
 
+/** Theater mode stays on for the next room, like YouTube's. */
+export const savedTheater = () => read('beam:theater') === 'on';
+export const saveTheater = (on: boolean) => write('beam:theater', on ? 'on' : 'off');
+
 /** The host's last picked share quality, validated by the caller. */
 export const savedQuality = (): unknown => {
   try {
