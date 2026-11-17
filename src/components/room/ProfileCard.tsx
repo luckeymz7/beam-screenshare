@@ -19,6 +19,8 @@ export function ProfileCard({
   friendButton,
   onMakeHost,
   listenKey,
+  hostMuted,
+  onHostMute,
 }: {
   name: string;
   meta: Partial<ParticipantMeta>;
@@ -30,6 +32,10 @@ export function ProfileCard({
   onMakeHost?: () => void;
   /** Someone else in the room: mute them or turn them down, for you only */
   listenKey?: string;
+  /** The host muted them for everyone */
+  hostMuted?: boolean;
+  /** The host, looking at a guest: mute them for everyone, or let them speak */
+  onHostMute?: () => void;
 }) {
   const t = useT();
   const [armed, setArmed] = useState(false);
@@ -59,9 +65,14 @@ export function ProfileCard({
         )}
         {meta.bio && <p className="pc-bio">{meta.bio}</p>}
         {listenKey && <ListenControls listenKey={listenKey} />}
-        {(showFriend || onMakeHost) && (
+        {(showFriend || onMakeHost || onHostMute) && (
           <div className="pc-actions">
             {showFriend && <FriendButton userId={meta.uid!} />}
+            {onHostMute && (
+              <button className={`btn friend-btn ${hostMuted ? '' : 'danger-soft'}`} onClick={onHostMute}>
+                <Icon name={hostMuted ? 'mic' : 'micOff'} size={14} /> {hostMuted ? t('host.unmute') : t('host.mute')}
+              </button>
+            )}
             {onMakeHost && (
               <button
                 className={`btn friend-btn ${armed ? 'danger' : ''}`}

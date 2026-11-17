@@ -15,6 +15,8 @@ export function metaOf(p: Participant | undefined): Partial<ParticipantMeta> {
       theme: toTheme(m.theme) ?? undefined,
       banner: safeImage(m.banner),
       entrance: toEntrance(m.entrance) ?? undefined,
+      hostMuted: m.hostMuted === true,
+      deafened: m.deafened === true,
     };
   } catch {
     return {};

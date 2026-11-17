@@ -101,12 +101,15 @@ export function RoomView({
   role: joinedRole,
   hostKey: joinedHostKey,
   premium,
+  token,
 }: {
   info: RoomInfo;
   role: Role;
   hostKey: string | null;
   /** From the join token: unlocks the premium share qualities and drawing */
   premium: boolean;
+  /** Your join token: proves who you are when you tell the room you deafened */
+  token: string;
 }) {
   const t = useT();
   const room = useRoomContext();
@@ -116,6 +119,13 @@ export function RoomView({
   const info = useMemo(() => liveRoom(joinedInfo, roomMetadata), [joinedInfo, roomMetadata]);
   const { metadata: myMetadata } = useParticipantInfo({ participant: local.localParticipant });
   const role = roleOf(myMetadata, joinedRole);
+  const hostMuted = useMemo(() => {
+    try {
+      return (JSON.parse(myMetadata || '{}') as { hostMuted?: unknown }).hostMuted === true;
+    } catch {
+      return false;
+    }
+  }, [myMetadata]);
   const isHost = role === 'host';
   // Dev only: lets automated tests publish a fake screen without the browser's picker
   useEffect(() => {
@@ -273,6 +283,7 @@ export function RoomView({
       .setMicrophoneEnabled(on)
       .catch((e: Error) => notify(t('room.micError', { error: e.message })));
   const toggleMic = () => {
+    if (!local.isMicrophoneEnabled && hostMuted) return notify(t('room.mutedByHost'));
     if (!local.isMicrophoneEnabled && listen.deafened) {
       micBeforeDeafen.current = false;
       setDeafened(false);
@@ -282,7 +293,7 @@ export function RoomView({
   const toggleDeafen = () => {
     if (listen.deafened) {
       setDeafened(false);
-      if (micBeforeDeafen.current) setMic(true);
+      if (micBeforeDeafen.current && !hostMuted) setMic(true);
       return;
     }
     micBeforeDeafen.current = local.isMicrophoneEnabled;
@@ -292,6 +303,24 @@ export function RoomView({
   };
   // A new room starts hearing everyone
   useEffect(() => () => void setDeafened(false), []);
+  // Everyone sees that you deafened (the server writes it, from your join token)
+  const sentDeafened = useRef(false);
+  useEffect(() => {
+    if (sentDeafened.current === listen.deafened) return;
+    sentDeafened.current = listen.deafened;
+    fetch(`/api/rooms/${info.id}/me`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, deafened: listen.deafened }),
+    }).catch(() => {});
+  }, [listen.deafened, info.id, token]);
+  // The host muting you (LiveKit has already taken your microphone down)
+  const wasHostMuted = useRef(hostMuted);
+  useEffect(() => {
+    if (wasHostMuted.current === hostMuted) return;
+    wasHostMuted.current = hostMuted;
+    notify(hostMuted ? t('room.mutedByHost') : t('room.youCanSpeak'), 4000);
+  }, [hostMuted, notify, t]);
   const toggleCam = () =>
     local.localParticipant
       .setCameraEnabled(!local.isCameraEnabled)
@@ -439,6 +468,14 @@ export function RoomView({
     manage({ action: 'settings', ...change })
       .then((r) => !r.ok && notify(t('room.settingsFailed')))
       .catch(() => notify(t('room.settingsFailed')));
+  const muteFor = (identity: string, muted: boolean) =>
+    manage({ action: 'mute', identity, muted })
+      .then((r) => !r.ok && notify(t('host.muteFailed')))
+      .catch(() => notify(t('host.muteFailed')));
+  const muteAll = () =>
+    manage({ action: 'muteAll' })
+      .then((r) => notify(r.ok ? t('host.mutedAll') : t('host.muteFailed'), 3000))
+      .catch(() => notify(t('host.muteFailed')));
   const makeHost = (identity: string) =>
     manage({ action: 'transfer', identity })
       .then((r) => !r.ok && notify(t('room.transferFailed')))
@@ -554,6 +591,12 @@ export function RoomView({
                     </span>
                   </label>
                 )}
+                <div className="settings-row">
+                  <button className="btn" onClick={muteAll}>
+                    <Icon name="micOff" size={14} /> {t('host.muteAll')}
+                  </button>
+                  <p className="muted small">{t('host.muteAllHint')}</p>
+                </div>
                 <p className="muted small">{t('room.makeHostHint')}</p>
               </div>
             </details>
@@ -745,9 +788,9 @@ export function RoomView({
 
               <div className="controls">
                 <button
-                  className={`round ${local.isMicrophoneEnabled ? '' : 'off'}`}
+                  className={`round ${local.isMicrophoneEnabled ? '' : 'off'} ${hostMuted ? 'locked' : ''}`}
                   onClick={toggleMic}
-                  title={t('room.mic')}
+                  title={hostMuted ? t('room.mutedByHost') : t('room.mic')}
                   aria-label={local.isMicrophoneEnabled ? t('room.mute') : t('room.unmute')}
                 >
                   <Icon name={local.isMicrophoneEnabled ? 'mic' : 'micOff'} size={19} />
@@ -853,7 +896,12 @@ export function RoomView({
             </div>
           </div>
 
-          <Tiles isHost={isHost} onRemove={(identity) => manage({ action: 'remove', identity })} onMakeHost={makeHost} />
+          <Tiles
+            isHost={isHost}
+            onRemove={(identity) => manage({ action: 'remove', identity })}
+            onMakeHost={makeHost}
+            onHostMute={muteFor}
+          />
         </div>
 
         {chatOpen && <Chat chat={chat} onClose={() => setChatOpen(false)} />}

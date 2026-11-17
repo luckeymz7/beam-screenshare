@@ -1,8 +1,17 @@
 import type { APIRoute } from 'astro';
-import { endRoom, getRoom, isHost, removeFromRoom, transferHost, updateSettings } from '../../../../lib/livekit';
+import {
+  endRoom,
+  getRoom,
+  isHost,
+  muteEveryone,
+  removeFromRoom,
+  setHostMuted,
+  transferHost,
+  updateSettings,
+} from '../../../../lib/livekit';
 import { unreachable } from '../../../../lib/http';
 
-type Body = { action?: unknown; identity?: unknown; share?: unknown; approval?: unknown };
+type Body = { action?: unknown; identity?: unknown; share?: unknown; approval?: unknown; muted?: unknown };
 
 /**
  * Host-only:
@@ -10,6 +19,8 @@ type Body = { action?: unknown; identity?: unknown; share?: unknown; approval?: 
  * - { action: 'remove', identity } removes someone
  * - { action: 'transfer', identity } makes someone else the host (this key stops working)
  * - { action: 'settings', share?, approval? } lets everyone share their screen / asks before letting in
+ * - { action: 'mute', identity, muted } mutes someone for everyone, or lets them speak again
+ * - { action: 'muteAll' } mutes everyone but the host
  */
 export const POST: APIRoute = async ({ params, request }) => {
   try {
@@ -29,6 +40,14 @@ export const POST: APIRoute = async ({ params, request }) => {
     }
     if (body.action === 'transfer' && identity) {
       await transferHost(room.info.id, room.meta, identity);
+      return new Response(null, { status: 204 });
+    }
+    if (body.action === 'mute' && identity && typeof body.muted === 'boolean') {
+      const done = await setHostMuted(room.info.id, room.meta, identity, body.muted);
+      return new Response(null, { status: done ? 204 : 400 });
+    }
+    if (body.action === 'muteAll') {
+      await muteEveryone(room.info.id, room.meta);
       return new Response(null, { status: 204 });
     }
     if (body.action === 'settings') {

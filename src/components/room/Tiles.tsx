@@ -14,10 +14,12 @@ export function Tiles({
   isHost,
   onRemove,
   onMakeHost,
+  onHostMute,
 }: {
   isHost: boolean;
   onRemove: (identity: string) => void;
   onMakeHost: (identity: string) => void;
+  onHostMute: (identity: string, muted: boolean) => void;
 }) {
   const cameras = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }]);
   // Roles (and the host badge) move when the host hands the room over
@@ -31,6 +33,9 @@ export function Tiles({
       Number(b.participant.isLocal) - Number(a.participant.isLocal),
   );
   const opened = sorted.find((t) => t.participant.identity === open)?.participant;
+  const openedMeta = metaOf(opened);
+  // Muting is for guests: the host can't be muted, and you don't mute yourself this way
+  const canHostMute = isHost && !!opened && !opened.isLocal && openedMeta.role !== 'host';
 
   // The card closes on a click anywhere else
   useEffect(() => {
@@ -64,6 +69,8 @@ export function Tiles({
             friendButton
             onMakeHost={isHost && !opened.isLocal ? () => onMakeHost(opened.identity) : undefined}
             listenKey={opened.isLocal ? undefined : listenKey(opened)}
+            hostMuted={!!openedMeta.hostMuted}
+            onHostMute={canHostMute ? () => onHostMute(opened.identity, !openedMeta.hostMuted) : undefined}
             onClose={() => setOpen(null)}
           />
         </div>
@@ -92,7 +99,8 @@ function Tile({
   const muted = useIsMuted({ participant: p, source: Track.Source.Microphone });
   const listen = useListen();
   const mutedByYou = !p.isLocal && userPref(listen, listenKey(p)).muted;
-  const deafened = p.isLocal && listen.deafened;
+  // Your own state shows at once; everyone else's comes from what the server signed
+  const deafened = p.isLocal ? listen.deafened : !!meta.deafened;
   const [armed, setArmed] = useState(false);
   const name = p.name || p.identity;
   const hasVideo = isTrackReference(trackRef) && !trackRef.publication.isMuted;
@@ -122,6 +130,10 @@ function Tile({
         {deafened ? (
           <span className="deaf-icon" title={t('tile.deafened')}>
             <Icon name="headphonesOff" size={12} />
+          </span>
+        ) : meta.hostMuted ? (
+          <span className="host-muted-icon" title={t('tile.hostMuted')}>
+            <Icon name="micOff" size={12} />
           </span>
         ) : (
           muted && <Icon name="micOff" size={12} />

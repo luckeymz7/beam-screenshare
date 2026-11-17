@@ -125,7 +125,13 @@ function Room({ room, myName }: { room: RoomInfo; myName?: string | null }) {
         }
         onError={(err) => setError(err.message)}
       >
-        <RoomView info={session.room} role={session.role} hostKey={hostKey} premium={session.premium} />
+        <RoomView
+          info={session.room}
+          role={session.role}
+          hostKey={hostKey}
+          premium={session.premium}
+          token={session.token}
+        />
         <RoomAudioRenderer />
       </LiveKitRoom>
     );

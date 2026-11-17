@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { AccessToken, DataPacket_Kind, RoomServiceClient, TrackSource, type Room } from 'livekit-server-sdk';
+import { AccessToken, DataPacket_Kind, RoomServiceClient, TokenVerifier, TrackSource, type Room } from 'livekit-server-sdk';
 import { LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_URL } from 'astro:env/server';
 import { toTheme, type Theme } from './themes';
 import type { RoomProfile } from './users';
@@ -153,23 +153,33 @@ export function isHost(meta: RoomMeta, hostKey: string | null | undefined) {
 export type Role = 'host' | 'guest';
 
 /** Everyone in the room can read it; only the server can write it (it's signed into the token). */
-export type ParticipantMeta = { role: Role } & Partial<RoomProfile>;
+export type ParticipantMeta = {
+  role: Role;
+  /** The host muted them for everyone: no microphone until the host lets them speak */
+  hostMuted?: boolean;
+  /** They deafened themselves (hear nobody) */
+  deafened?: boolean;
+} & Partial<RoomProfile>;
 
 /**
  * What someone may publish. Everyone can talk and turn on their camera; the screen is the host's,
  * unless the host lets everyone share.
  */
-const sourcesFor = (role: Role, guestsShare: boolean) =>
-  role === 'host' || guestsShare
-    ? [TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO, TrackSource.CAMERA, TrackSource.MICROPHONE]
-    : [TrackSource.CAMERA, TrackSource.MICROPHONE];
+const sourcesFor = (role: Role, guestsShare: boolean, hostMuted = false) => {
+  const sources =
+    role === 'host' || guestsShare
+      ? [TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO, TrackSource.CAMERA, TrackSource.MICROPHONE]
+      : [TrackSource.CAMERA, TrackSource.MICROPHONE];
+  // Muted by the host: LiveKit takes the microphone down and refuses it until this changes
+  return hostMuted ? sources.filter((s) => s !== TrackSource.MICROPHONE) : sources;
+};
 
 /** The full permission set (LiveKit replaces permissions as a whole, never field by field). */
-const permissionFor = (role: Role, guestsShare: boolean) => ({
+const permissionFor = (role: Role, guestsShare: boolean, hostMuted = false) => ({
   canSubscribe: true,
   canPublish: true,
   canPublishData: true,
-  canPublishSources: sourcesFor(role, guestsShare),
+  canPublishSources: sourcesFor(role, guestsShare, hostMuted),
   canUpdateMetadata: false,
 });
 
@@ -225,7 +235,11 @@ export async function updateSettings(roomId: string, meta: RoomMeta, change: { s
     await Promise.all(
       people
         .filter((p) => readMeta(p.metadata).role !== 'host')
-        .map((p) => rooms().updateParticipant(roomId, p.identity, { permission: permissionFor('guest', change.share!) })),
+        .map((p) =>
+          rooms().updateParticipant(roomId, p.identity, {
+            permission: permissionFor('guest', change.share!, !!readMeta(p.metadata).hostMuted),
+          }),
+        ),
     );
   }
   return next;
@@ -256,9 +270,11 @@ export async function transferHost(roomId: string, meta: RoomMeta, identity: str
       const pm = readMeta(p.metadata);
       const role: Role = p.identity === identity ? 'host' : 'guest';
       if (pm.role === role) return null;
+      // The new host speaks freely
+      const hostMuted = role === 'guest' && !!pm.hostMuted;
       return rooms().updateParticipant(roomId, p.identity, {
-        metadata: JSON.stringify({ ...pm, role }),
-        permission: permissionFor(role, !!meta.share),
+        metadata: JSON.stringify({ ...pm, role, hostMuted }),
+        permission: permissionFor(role, !!meta.share, hostMuted),
       });
     }),
   );
@@ -266,6 +282,60 @@ export async function transferHost(roomId: string, meta: RoomMeta, identity: str
     destinationIdentities: [identity],
     topic: 'host-key',
   });
+}
+
+/**
+ * The host mutes someone for everyone (or lets them speak again). Unlike muting someone for
+ * yourself, they can't turn their own microphone back on: the permission is gone.
+ */
+export async function setHostMuted(roomId: string, meta: RoomMeta, identity: string, hostMuted: boolean) {
+  const p = await rooms().getParticipant(roomId, identity);
+  const pm = readMeta(p.metadata);
+  if (pm.role === 'host') return false;
+  await rooms().updateParticipant(roomId, identity, {
+    metadata: JSON.stringify({ ...pm, hostMuted }),
+    permission: permissionFor('guest', !!meta.share, hostMuted),
+  });
+  return true;
+}
+
+/** Everyone but the host, at once. */
+export async function muteEveryone(roomId: string, meta: RoomMeta) {
+  const people = await rooms().listParticipants(roomId);
+  await Promise.all(
+    people
+      .filter((p) => {
+        const pm = readMeta(p.metadata);
+        return pm.role !== 'host' && !pm.hostMuted;
+      })
+      .map((p) =>
+        rooms().updateParticipant(roomId, p.identity, {
+          metadata: JSON.stringify({ ...readMeta(p.metadata), hostMuted: true }),
+          permission: permissionFor('guest', !!meta.share, true),
+        }),
+      ),
+  );
+}
+
+/**
+ * Who is asking, proven by their own join token (signed by this server). Participants can't write
+ * their metadata themselves, since it carries their role and premium.
+ */
+export async function identityFromToken(roomId: string, token: string) {
+  try {
+    const claims = await new TokenVerifier(config.key, config.secret).verify(token);
+    return claims.video?.room === roomId && typeof claims.sub === 'string' ? claims.sub : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Shows everyone that someone deafened themselves. */
+export async function setDeafenedFlag(roomId: string, identity: string, deafened: boolean) {
+  const p = await rooms().getParticipant(roomId, identity);
+  const pm = readMeta(p.metadata);
+  if (!!pm.deafened === deafened) return;
+  await rooms().updateParticipant(roomId, identity, { metadata: JSON.stringify({ ...pm, deafened }) });
 }
 
 export type LiveParticipant = {

@@ -1467,3 +1467,29 @@ main > :has(.room.theater, .sheet-backdrop, .room.with-chat) {
   font-size: 10px;
   color: var(--faint);
 }
+
+/* ---------- the host muting people ---------- */
+
+.tile-name .host-muted-icon {
+  display: inline-flex;
+  flex: none;
+  padding: 1px;
+  border-radius: 4px;
+  background: rgb(229 120 109 / 0.18);
+}
+.round.locked {
+  opacity: 0.55;
+}
+.btn.danger-soft:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.settings-row {
+  display: grid;
+  gap: 0.35rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--line);
+}
+.settings-row .btn {
+  justify-self: start;
+}
